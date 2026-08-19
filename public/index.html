@@ -22,6 +22,7 @@
   .insta { background: linear-gradient(45deg, #f09433, #dc2743, #bc1888); }
   .fb { background: #1877f2; }
   .both { background: #2ea44f; }
+  .local { background: #8957e5; }
   .status { color: #9aa4b2; margin-bottom: 20px; min-height: 22px; }
   .results { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; width: 100%; }
   .result-box { flex: 1 1 460px; max-width: 560px; min-width: 320px; }
@@ -36,6 +37,7 @@
     <button class="insta" onclick="run('instagram', 0)">Instagram</button>
     <button class="fb" onclick="run('facebook', 1)">Facebook</button>
     <button class="both" onclick="runBoth()">Capture Both</button>
+    <button class="local" onclick="runLocal()">Capture with your browser (record.js)</button>
   </div>
   <div class="status" id="status"></div>
   <div class="results">
@@ -114,6 +116,43 @@
         }
         $('status').textContent = 'Done — ' + (ok.includes('instagram') ? 'Instagram' : '') +
           (ok.length > 1 ? ' and ' : '') + (ok.includes('facebook') ? 'Facebook' : '') + ' captured below.';
+      } catch (e) {
+        $('status').textContent = 'Error: ' + e.message;
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    // Runs the REAL record.js flow on the visitor's own PC via the local
+    // companion service (http://127.0.0.1:9876). Browsers allow an HTTPS page
+    // to reach 127.0.0.1, so this works while companion.js is running locally.
+    const COMPANION = 'http://127.0.0.1:9876';
+    const runLocal = async () => {
+      setBusy(true);
+      $('img-0').style.display = 'none';
+      $('img-1').style.display = 'none';
+      $('status').textContent = 'Checking local companion…';
+      try {
+        const ping = await fetch(COMPANION + '/ping', { cache: 'no-store' });
+        if (!ping.ok) throw new Error('companion ping failed');
+      } catch (e) {
+        $('status').textContent =
+          'No local record.js service on this PC. Run  node companion.js  in your cookies folder, then click again.';
+        setBusy(false);
+        return;
+      }
+      $('status').textContent = 'Running record.js in your browser (Instagram then Facebook)… keep this tab open.';
+      try {
+        const res = await fetch(COMPANION + '/run?site=both', { cache: 'no-store' });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'HTTP ' + res.status);
+        for (const site of SITES) {
+          if (data.images && data.images[site]) {
+            $('img-' + SITES.indexOf(site)).src = data.images[site];
+            $('img-' + SITES.indexOf(site)).style.display = 'block';
+          }
+        }
+        $('status').textContent = 'Done — screenshots from YOUR browser (real login) captured below.';
       } catch (e) {
         $('status').textContent = 'Error: ' + e.message;
       } finally {
