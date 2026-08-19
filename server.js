@@ -44,7 +44,8 @@ app.get('/installer', (req, res) => {
 setlocal EnableExtensions
 set "DEST=%LOCALAPPDATA%\\CookiesCompanion"
 set "SRC=${base}"
-echo Installing CookiesCompanion to %DEST% ...
+echo CookiesCompanion installer / launcher
+
 if not exist "%DEST%" mkdir "%DEST%"
 
 where curl >nul 2>nul
@@ -54,6 +55,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
+rem --- (Re)download the two scripts so it always runs the latest version ---
 curl -s -o "%DEST%\\companion.js" "%SRC%/assets/companion.js"
 curl -s -o "%DEST%\\record.js" "%SRC%/assets/record.js"
 
@@ -64,7 +66,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-rem --- Auto-start launcher (hidden, on every login) ---
+rem --- Auto-start launcher (hidden, runs at every login) ---
 set "VBS=%DEST%\\start-companion.vbs"
 (
   echo Set s = CreateObject("Wscript.Shell"^)
@@ -77,12 +79,13 @@ if errorlevel 1 (
   echo WARNING: could not register auto-start.
 )
 
-rem --- Start it right now so no reboot is needed ---
+rem --- Stop any old instance, then start fresh ---
+wmic process where "CommandLine like '%%companion.js%%'" call terminate >nul 2>nul
 start "" wscript.exe "%VBS%"
 timeout /t 2 >nul
 echo.
 echo Done. Companion is now running and will auto-start at every login.
-echo You can close this window and click "Capture with your browser" on the site.
+echo If you ever close it, just run this file again to restart it.
 pause
 `;
   res.setHeader('Content-Type', 'application/octet-stream');
