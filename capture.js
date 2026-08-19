@@ -71,31 +71,6 @@ function renderScreenshot({ site, reqUrl, method, status, requestHeaders, respon
 </html>`;
 }
 
-function parseCookies(raw) {
-  const jar = [];
-  if (!raw || !raw.trim()) return jar;
-  for (const part of raw.split(';')) {
-    const p = part.trim();
-    if (!p) continue;
-    const eq = p.indexOf('=');
-    if (eq <= 0) continue;
-    jar.push({ name: p.slice(0, eq).trim(), value: p.slice(eq + 1).trim() });
-  }
-  return jar;
-}
-
-async function injectCookies(client, raw, url) {
-  const jar = parseCookies(raw);
-  if (!jar.length) return;
-  const baseUrl = url.split('?')[0];
-  for (const c of jar) {
-    try {
-      await client.send('Network.setCookie', { url: baseUrl, name: c.name, value: c.value });
-    } catch {}
-  }
-  console.log('injected', jar.length, 'cookies');
-}
-
 async function capture(siteName, cookieStr) {
   const site = SITES[siteName] || SITES.instagram;
   let browser = null;
@@ -109,7 +84,6 @@ async function capture(siteName, cookieStr) {
     await page.setViewport({ width: 1000, height: 1200 });
     const client = await page.createCDPSession();
     await client.send('Network.enable');
-    if (cookieStr) await injectCookies(client, cookieStr, site.url);
 
     let reqUrl = site.url;
     let method = 'GET';
@@ -120,12 +94,25 @@ async function capture(siteName, cookieStr) {
     const matchUrl = (u) => u.replace(/[?#].*$/, '') === site.url.replace(/[?#].*$/, '');
     const pendingDocs = new Map();
 
-    // When cookies are injected they're valid from the first navigation, so
-    // capture that one (its Cookie header is exactly the pasted value). With
+    // When cookies are supplied they're valid from the first navigation, so
+    // capture that one (its Cookie header is exactly the supplied value). With
     // no cookies, the first navigation runs on an empty jar and the SECOND
     // one carries the cookies Instagram set; capture that one instead.
     const captureCount = cookieStr ? 1 : 2;
     let navCount = 0;
+
+    if (cookieStr) {
+      // Send the EXACT cookie string verbatim (Chrome would otherwise
+      // reorder cookies when building the Cookie header from its jar).
+      await page.setRequestInterception(true);
+      page.on('request', (req) => {
+        if (req.isNavigationRequest() && matchUrl(req.url()) && cookieStr) {
+          req.continue({ headers: { ...req.headers(), cookie: cookieStr } });
+        } else {
+          req.continue();
+        }
+      });
+    }
 
     // requestWillBeSent headers omit the Cookie header; the authoritative
     // headers (including Cookie) arrive in requestWillBeSentExtraInfo and
