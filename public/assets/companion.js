@@ -25,6 +25,10 @@ function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
+  // Required by Chrome/Firefox "Private Network Access": a public https site
+  // may only fetch a local http service if it answers the preflight with this.
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  res.setHeader('Access-Control-Max-Age', '600');
 }
 
 function sendJson(res, code, obj) {
