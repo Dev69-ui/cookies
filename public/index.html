@@ -51,7 +51,13 @@
           'Running capture for ' + site + '… (attempt ' + attempt + '/' + maxAttempts + ', ~10–45s each)';
         try {
           const res = await fetch('/run?site=' + site, { cache: 'no-store' });
-          if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text()));
+          if (!res.ok) {
+            // 404 = Render cold-start ("no-server"), 502 = still booting.
+            // Don't dump the HTML error page; keep the message short.
+            const body = await res.text();
+            const brief = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+            throw new Error('HTTP ' + res.status + (brief ? ' — ' + brief.slice(0, 80) : ''));
+          }
           const blob = await res.blob();
           $('result').src = URL.createObjectURL(blob);
           $('result').style.display = 'block';
