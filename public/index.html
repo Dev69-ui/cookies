@@ -55,8 +55,10 @@
         const ping = await fetch(COMPANION + '/ping', { cache: 'no-store' });
         if (!ping.ok) throw new Error('ping failed');
       } catch (e) {
-        $('status').textContent =
-          'No local record.js service on this PC. Run  node companion.js  in your cookies folder, then click again.';
+        $('status').innerHTML =
+          'No local record.js service on this PC. Install it once (auto-starts on every login): ' +
+          '<a href="/installer" download style="color:#a78bfa">Download companion installer</a> — ' +
+          'run the downloaded file once, then click the button again.';
         $('btn').disabled = false;
         return;
       }
