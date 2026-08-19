@@ -22,8 +22,6 @@
   .insta { background: linear-gradient(45deg, #f09433, #dc2743, #bc1888); }
   .fb { background: #1877f2; }
   .status { color: #9aa4b2; margin-bottom: 20px; min-height: 22px; }
-  .sub2 { color: #6b7280; font-size: 12px; margin-bottom: 6px; }
-  textarea { width: 100%; max-width: 560px; background: #1c1f26; color: #d4d4d4; border: 1px solid #2f3440; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 11px; margin-bottom: 16px; resize: vertical; }
   img { max-width: 100%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.5); display: none; }
 </style>
 </head>
@@ -34,8 +32,6 @@
     <button class="insta" onclick="run('instagram')">Instagram</button>
     <button class="fb" onclick="run('facebook')">Facebook</button>
   </div>
-  <p class="sub2">Optional: paste your logged-in cookies to capture your real session headers.</p>
-  <textarea id="cookies" rows="3" placeholder="name=value; name2=value2; …"></textarea>
   <div class="status" id="status"></div>
   <img id="result" alt="capture result">
 
@@ -43,7 +39,6 @@
     const $ = (id) => document.getElementById(id);
     const run = async (site) => {
       const btns = document.querySelectorAll('button');
-      const cookieInput = $('cookies').value.trim();
       btns.forEach((b) => (b.disabled = true));
       $('result').style.display = 'none';
 
@@ -52,7 +47,6 @@
       const maxAttempts = 8;
       let lastErr = '';
       let url = '/run?site=' + site;
-      if (cookieInput) url += '&cookie=' + encodeURIComponent(cookieInput);
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         $('status').textContent =
           'Running capture for ' + site + '… (attempt ' + attempt + '/' + maxAttempts + ', ~10–45s each)';
