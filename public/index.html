@@ -11,7 +11,7 @@
     min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 40px 16px;
   }
   h1 { font-size: 24px; margin-bottom: 6px; }
-  p.sub { color: #9aa4b2; margin-bottom: 28px; }
+  p.sub { color: #9aa4b2; margin-bottom: 28px; text-align: center; }
   .btns { display: flex; gap: 16px; margin-bottom: 30px; flex-wrap: wrap; justify-content: center; }
   button {
     font-size: 16px; font-weight: 600; color: #fff; border: none; border-radius: 10px;
@@ -21,57 +21,104 @@
   button:disabled { opacity: .45; cursor: wait; }
   .insta { background: linear-gradient(45deg, #f09433, #dc2743, #bc1888); }
   .fb { background: #1877f2; }
+  .both { background: #2ea44f; }
   .status { color: #9aa4b2; margin-bottom: 20px; min-height: 22px; }
-  img { max-width: 100%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.5); display: none; }
+  .results { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; width: 100%; }
+  .result-box { flex: 1 1 460px; max-width: 560px; min-width: 320px; }
+  .result-box h2 { font-size: 14px; color: #9aa4b2; margin-bottom: 8px; }
+  img { width: 100%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.5); display: none; }
 </style>
 </head>
 <body>
   <h1>Instagram / Facebook Capture</h1>
-  <p class="sub">Click a button to run the capture server-side and view the headers screenshot.</p>
+  <p class="sub">Capture both header screenshots in one click. Logged-in cookies come from the server env secrets (INSTAGRAM_COOKIE, FACEBOOK_COOKIE).</p>
   <div class="btns">
-    <button class="insta" onclick="run('instagram')">Instagram</button>
-    <button class="fb" onclick="run('facebook')">Facebook</button>
+    <button class="insta" onclick="run('instagram', 0)">Instagram</button>
+    <button class="fb" onclick="run('facebook', 1)">Facebook</button>
+    <button class="both" onclick="runBoth()">Capture Both</button>
   </div>
   <div class="status" id="status"></div>
-  <img id="result" alt="capture result">
+  <div class="results">
+    <div class="result-box">
+      <h2>Instagram — instagram/?__a=1</h2>
+      <img id="img-0" alt="instagram capture">
+    </div>
+    <div class="result-box">
+      <h2>Facebook — facebook/?__a=1</h2>
+      <img id="img-1" alt="facebook capture">
+    </div>
+  </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const run = async (site) => {
-      const btns = document.querySelectorAll('button');
-      btns.forEach((b) => (b.disabled = true));
-      $('result').style.display = 'none';
+    const SITES = ['instagram', 'facebook'];
 
+    const setBusy = (busy) => {
+      document.querySelectorAll('button').forEach((b) => (b.disabled = busy));
+    };
+
+    const fetchShot = async (site) => {
       // Render free tier spins down after ~15 min idle; the first request
       // then hits a 404 "no-server" cold-start window. Retry until warm.
       const maxAttempts = 8;
       let lastErr = '';
-      let url = '/run?site=' + site;
+      const url = '/run?site=' + site;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         $('status').textContent =
           'Running capture for ' + site + '… (attempt ' + attempt + '/' + maxAttempts + ', ~10–45s each)';
         try {
           const res = await fetch(url, { cache: 'no-store' });
           if (!res.ok) {
-            // 404 = Render cold-start ("no-server"), 502 = still booting.
-            // Don't dump the HTML error page; keep the message short.
             const body = await res.text();
             const brief = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
             throw new Error('HTTP ' + res.status + (brief ? ' — ' + brief.slice(0, 80) : ''));
           }
           const blob = await res.blob();
-          $('result').src = URL.createObjectURL(blob);
-          $('result').style.display = 'block';
-          $('status').textContent = 'Done. Screenshot below.';
-          btns.forEach((b) => (b.disabled = false));
-          return;
+          return URL.createObjectURL(blob);
         } catch (e) {
           lastErr = e.message;
           if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, 6000));
         }
       }
-      btns.forEach((b) => (b.disabled = false));
-      $('status').textContent = 'Error: ' + lastErr;
+      throw new Error('Failed for ' + site + ': ' + lastErr);
+    };
+
+    const run = async (site, index) => {
+      setBusy(true);
+      $('img-' + index).style.display = 'none';
+      $('img-' + (1 - index)).style.display = 'none';
+      try {
+        const url = await fetchShot(site);
+        $('img-' + index).src = url;
+        $('img-' + index).style.display = 'block';
+        $('status').textContent = 'Done — ' + site + ' screenshot below.';
+      } catch (e) {
+        $('status').textContent = 'Error: ' + e.message;
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    const runBoth = async () => {
+      setBusy(true);
+      $('img-0').style.display = 'none';
+      $('img-1').style.display = 'none';
+      const ok = [];
+      try {
+        for (const site of SITES) {
+          const url = await fetchShot(site);
+          const idx = SITES.indexOf(site);
+          $('img-' + idx).src = url;
+          $('img-' + idx).style.display = 'block';
+          ok.push(site);
+        }
+        $('status').textContent = 'Done — ' + (ok.includes('instagram') ? 'Instagram' : '') +
+          (ok.length > 1 ? ' and ' : '') + (ok.includes('facebook') ? 'Facebook' : '') + ' captured below.';
+      } catch (e) {
+        $('status').textContent = 'Error: ' + e.message;
+      } finally {
+        setBusy(false);
+      }
     };
   </script>
 </body>
