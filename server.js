@@ -21,4 +21,17 @@ app.get('/run', async (req, res) => {
   }
 });
 
+// Diagnostic: shows what the server would send, no screenshot. Lets us verify
+// the exact env-var cookie WITHOUT reading the PNG.
+app.get('/debug/cookie', async (req, res) => {
+  const site = req.query.site === 'facebook' ? 'facebook' : 'instagram';
+  const cookie = process.env[site.toUpperCase() + '_COOKIE'] || '';
+  res.json({
+    site,
+    envSet: process.env[site.toUpperCase() + '_COOKIE'] ? true : false,
+    length: cookie.length,
+    cookie,
+  });
+});
+
 app.listen(PORT, () => console.log(`Server listening on :${PORT}`));
