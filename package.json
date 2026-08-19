@@ -1,0 +1,14 @@
+{
+  "name": "insta-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Server-side capture: opens Instagram/Facebook ?__a=1, collects the request headers, and returns a DevTools-style screenshot.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "puppeteer": "^24.15.0"
+  }
+}

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instagram / Facebook Capture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #12141a; color: #e8e8e8; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 40px 16px;
+  }
+  h1 { font-size: 24px; margin-bottom: 6px; }
+  p.sub { color: #9aa4b2; margin-bottom: 28px; }
+  .btns { display: flex; gap: 16px; margin-bottom: 30px; flex-wrap: wrap; justify-content: center; }
+  button {
+    font-size: 16px; font-weight: 600; color: #fff; border: none; border-radius: 10px;
+    padding: 14px 28px; cursor: pointer; transition: transform .1s, opacity .2s;
+  }
+  button:hover { transform: translateY(-2px); }
+  button:disabled { opacity: .45; cursor: wait; }
+  .insta { background: linear-gradient(45deg, #f09433, #dc2743, #bc1888); }
+  .fb { background: #1877f2; }
+  .status { color: #9aa4b2; margin-bottom: 20px; min-height: 22px; }
+  img { max-width: 100%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.5); display: none; }
+</style>
+</head>
+<body>
+  <h1>Instagram / Facebook Capture</h1>
+  <p class="sub">Click a button to run the capture server-side and view the headers screenshot.</p>
+  <div class="btns">
+    <button class="insta" onclick="run('instagram')">Instagram</button>
+    <button class="fb" onclick="run('facebook')">Facebook</button>
+  </div>
+  <div class="status" id="status"></div>
+  <img id="result" alt="capture result">
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const run = async (site) => {
+      const btns = document.querySelectorAll('button');
+      btns.forEach((b) => (b.disabled = true));
+      $('result').style.display = 'none';
+      $('status').textContent = 'Running capture for ' + site + '… (this takes ~10–30s)';
+      try {
+        const res = await fetch('/run?site=' + site);
+        if (!res.ok) throw new Error(await res.text());
+        const blob = await res.blob();
+        $('result').src = URL.createObjectURL(blob);
+        $('result').style.display = 'block';
+        $('status').textContent = 'Done. Screenshot below.';
+      } catch (e) {
+        $('status').textContent = 'Error: ' + e.message;
+      } finally {
+        btns.forEach((b) => (b.disabled = false));
+      }
+    };
+  </script>
+</body>
+</html>
