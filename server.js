@@ -86,11 +86,9 @@ timeout /t 2 >nul
 
 rem --- Run the FULL record.js capture right now (both sites, your browser) ---
 set "RECORD_SILENT=1"
-set "CDNODE="
 echo.
 echo Running record.js now — your browser will open and capture Instagram then Facebook.
 echo Do not close the browser until it finishes.
-"%PROGRAMDATA%\\nvm\\nvm.exe" --version >nul 2>nul
 node "%DEST%\\record.js"
 
 echo.
