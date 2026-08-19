@@ -46,20 +46,53 @@
     const SITES = ['instagram', 'facebook'];
     const COMPANION = 'http://127.0.0.1:9876';
 
+    // Renders the server capture of one site into the matching img slot.
+    const captureServerShot = async (site, index) => {
+      const img = $('img-' + index);
+      try {
+        const res = await fetch('/run?site=' + site, { cache: 'no-store' });
+        if (!res.ok) {
+          const brief = (await res.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          throw new Error('HTTP ' + res.status + (brief ? ' — ' + brief.slice(0, 80) : ''));
+        }
+        const url = URL.createObjectURL(await res.blob());
+        img.src = url;
+        img.style.display = 'block';
+        return true;
+      } catch {
+        throw new Error('Server capture failed for ' + site);
+      }
+    };
+
     const runLocal = async () => {
       $('btn').disabled = true;
       $('img-0').style.display = 'none';
       $('img-1').style.display = 'none';
-      $('status').textContent = 'Checking local record.js companion…';
+
+      let companionUp = false;
       try {
         const ping = await fetch(COMPANION + '/ping', { cache: 'no-store' });
-        if (!ping.ok) throw new Error('ping failed');
-      } catch (e) {
-        $('status').textContent =
-          'No local record.js service on this PC. Run  node companion.js  in your cookies folder, then click again.';
-        $('btn').disabled = false;
+        companionUp = ping.ok;
+      } catch {}
+
+      if (!companionUp) {
+        // No companion on this PC: run the capture on the server instead, so
+        // the button ALWAYS works on any computer.
+        $('status').textContent = 'Running capture on the server (Instagram then Facebook)… this takes ~30–90s.';
+        try {
+          await captureServerShot('instagram', 0);
+          await captureServerShot('facebook', 1);
+          $('status').textContent =
+            'Done — screenshots captured by the server (shown below). Start  node companion.js  on this PC to use YOUR own browser login instead.';
+        } catch (e) {
+          $('status').textContent = 'Error: ' + e.message;
+        } finally {
+          $('btn').disabled = false;
+        }
         return;
       }
+
+      // Companion running: real record.js on this PC (visitor's own login).
       $('status').textContent = 'Running record.js in your browser (Instagram then Facebook)… keep this tab open.';
       try {
         const res = await fetch(COMPANION + '/run?site=both', { cache: 'no-store' });
