@@ -9,8 +9,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/run', async (req, res) => {
   const site = req.query.site === 'facebook' ? 'facebook' : 'instagram';
+  const cookie = req.query.cookie || '';
   try {
-    const png = await capture(site);
+    const png = await capture(site, cookie);
     res.setHeader('Content-Type', 'image/png');
     res.send(png);
   } catch (err) {

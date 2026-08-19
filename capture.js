@@ -71,7 +71,32 @@ function renderScreenshot({ site, reqUrl, method, status, requestHeaders, respon
 </html>`;
 }
 
-async function capture(siteName) {
+function parseCookies(raw) {
+  const jar = [];
+  if (!raw || !raw.trim()) return jar;
+  for (const part of raw.split(';')) {
+    const p = part.trim();
+    if (!p) continue;
+    const eq = p.indexOf('=');
+    if (eq <= 0) continue;
+    jar.push({ name: p.slice(0, eq).trim(), value: p.slice(eq + 1).trim() });
+  }
+  return jar;
+}
+
+async function injectCookies(client, raw, url) {
+  const jar = parseCookies(raw);
+  if (!jar.length) return;
+  const baseUrl = url.split('?')[0];
+  for (const c of jar) {
+    try {
+      await client.send('Network.setCookie', { url: baseUrl, name: c.name, value: c.value });
+    } catch {}
+  }
+  console.log('injected', jar.length, 'cookies');
+}
+
+async function capture(siteName, cookieStr) {
   const site = SITES[siteName] || SITES.instagram;
   let browser = null;
   try {
@@ -84,6 +109,7 @@ async function capture(siteName) {
     await page.setViewport({ width: 1000, height: 1200 });
     const client = await page.createCDPSession();
     await client.send('Network.enable');
+    if (cookieStr) await injectCookies(client, cookieStr, site.url);
 
     let reqUrl = site.url;
     let method = 'GET';
