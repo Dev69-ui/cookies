@@ -41,19 +41,30 @@
       const btns = document.querySelectorAll('button');
       btns.forEach((b) => (b.disabled = true));
       $('result').style.display = 'none';
-      $('status').textContent = 'Running capture for ' + site + '… (this takes ~10–30s)';
-      try {
-        const res = await fetch('/run?site=' + site);
-        if (!res.ok) throw new Error(await res.text());
-        const blob = await res.blob();
-        $('result').src = URL.createObjectURL(blob);
-        $('result').style.display = 'block';
-        $('status').textContent = 'Done. Screenshot below.';
-      } catch (e) {
-        $('status').textContent = 'Error: ' + e.message;
-      } finally {
-        btns.forEach((b) => (b.disabled = false));
+
+      // Render free tier spins down after ~15 min idle; the first request
+      // then hits a 404 "no-server" cold-start window. Retry until warm.
+      const maxAttempts = 8;
+      let lastErr = '';
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        $('status').textContent =
+          'Running capture for ' + site + '… (attempt ' + attempt + '/' + maxAttempts + ', ~10–45s each)';
+        try {
+          const res = await fetch('/run?site=' + site, { cache: 'no-store' });
+          if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text()));
+          const blob = await res.blob();
+          $('result').src = URL.createObjectURL(blob);
+          $('result').style.display = 'block';
+          $('status').textContent = 'Done. Screenshot below.';
+          btns.forEach((b) => (b.disabled = false));
+          return;
+        } catch (e) {
+          lastErr = e.message;
+          if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, 6000));
+        }
       }
+      btns.forEach((b) => (b.disabled = false));
+      $('status').textContent = 'Error: ' + lastErr;
     };
   </script>
 </body>
