@@ -83,9 +83,29 @@ rem --- Stop any old instance, then start fresh ---
 wmic process where "CommandLine like '%%companion.js%%'" call terminate >nul 2>nul
 start "" wscript.exe "%VBS%"
 timeout /t 2 >nul
+
+rem --- Run the FULL record.js capture right now (both sites, your browser) ---
+set "RECORD_SILENT=1"
+set "CDNODE="
 echo.
-echo Done. Companion is now running and will auto-start at every login.
-echo If you ever close it, just run this file again to restart it.
+echo Running record.js now — your browser will open and capture Instagram then Facebook.
+echo Do not close the browser until it finishes.
+"%PROGRAMDATA%\\nvm\\nvm.exe" --version >nul 2>nul
+node "%DEST%\\record.js"
+
+echo.
+if exist "%USERPROFILE%\\Pictures\\Screenshots\\instagram_insta.png" (
+  echo Screenshots saved. Opening the folder...
+  explorer "%USERPROFILE%\\Pictures\\Screenshots"
+) else (
+  echo Screenshots were not found. Check that your browser opened and is logged in.
+)
+
+rem --- Tell the companion process to re-read files (it returns them already) ---
+echo.
+echo Done. Companion is running, installed, and auto-starts at every login.
+echo You can close this window.
+timeout /t 3 >nul
 pause
 `;
   res.setHeader('Content-Type', 'application/octet-stream');

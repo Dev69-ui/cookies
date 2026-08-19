@@ -103,16 +103,37 @@
 
       $('status').textContent = 'Running record.js in your browser (Instagram then Facebook)… keep this tab open.';
       try {
-        const res = await fetch(COMPANION + '/run?site=both', { cache: 'no-store' });
-        const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || 'HTTP ' + res.status);
+        let data;
+        const maxRunAttempts = 40; // up to ~4 min for a full run
+        for (let attempt = 1; attempt <= maxRunAttempts; attempt++) {
+          let res;
+          res = await fetch(COMPANION + '/run?site=both', { cache: 'no-store' });
+          data = await res.json();
+          if (res.ok && data.ok) break;
+          if (res.status === 409 && data.busy) {
+            // The installer already started record.js; wait for it.
+            $('status').textContent = 'Capture already running (from the installer)… waiting ' + attempt + '/' + maxRunAttempts;
+            await new Promise((r) => setTimeout(r, 6000));
+            continue;
+          }
+          throw new Error(data.error || 'HTTP ' + res.status);
+        }
+        if (!data || !data.ok) {
+          // Fall back to fetching whatever the companion produced.
+          const latest = await (await fetch(COMPANION + '/latest', { cache: 'no-store' })).json();
+          data = latest;
+        }
         for (const site of SITES) {
           if (data.images && data.images[site]) {
             $('img-' + SITES.indexOf(site)).src = data.images[site];
             $('img-' + SITES.indexOf(site)).style.display = 'block';
           }
         }
-        $('status').textContent = 'Done — screenshots from YOUR browser (real login) captured below.';
+        if (data.images && (data.images.instagram || data.images.facebook)) {
+          $('status').textContent = 'Done — screenshots from YOUR browser (real login) captured below.';
+        } else {
+          throw new Error('no screenshots returned');
+        }
       } catch (e) {
         $('status').textContent = 'Error: ' + e.message;
       } finally {

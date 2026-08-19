@@ -19,6 +19,7 @@ const OUT_FILES = {
   facebook: 'facebook_insta.png',
 };
 const JOB_TIMEOUT_MS = 240000; // record.js handles both sites sequentially
+let busy = false;
 
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -81,14 +82,28 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { ok: true, note: 'companion running' });
   }
 
+  if (u.pathname === '/latest') {
+    let images = {};
+    for (const s of ['instagram', 'facebook']) {
+      const data = toDataUrl(OUT_FILES[s]);
+      if (data) images[s] = data;
+    }
+    return sendJson(res, 200, { ok: true, busy, images });
+  }
+
   if (u.pathname === '/run') {
     const site = u.searchParams.get('site') || 'both';
     if (!['instagram', 'facebook', 'both'].includes(site)) {
       return sendJson(res, 400, { error: 'site must be instagram, facebook or both' });
     }
+    if (busy) {
+      return sendJson(res, 409, { error: 'already running', busy: true });
+    }
+    busy = true;
     console.log(`[companion] /run site=${site} — starting record.js in your browser...`);
     runRecordJs()
       .then((timedOut) => {
+        busy = false;
         let images = {};
         let names = {};
         for (const s of ['instagram', 'facebook']) {
@@ -107,7 +122,10 @@ const server = http.createServer((req, res) => {
         console.log(`[companion] done — returned ${count} screenshots`);
         return sendJson(res, 200, { ok: true, site, images, filenames: names });
       })
-      .catch((err) => sendJson(res, 500, { error: String(err && err.message) }));
+      .catch((err) => {
+        busy = false;
+        sendJson(res, 500, { error: String(err && err.message) });
+      });
     return;
   }
 
