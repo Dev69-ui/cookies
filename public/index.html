@@ -46,22 +46,61 @@
     const SITES = ['instagram', 'facebook'];
     const COMPANION = 'http://127.0.0.1:9876';
 
+    const pingCompanion = async () => {
+      try {
+        const ping = await fetch(COMPANION + '/ping', { cache: 'no-store' });
+        return ping.ok;
+      } catch {
+        return false;
+      }
+    };
+
+    const triggerInstallDownload = () => {
+      // Programmatic download of the installer (already a click context).
+      const a = document.createElement('a');
+      a.href = '/installer';
+      a.download = 'install-companion.bat';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
+
+    const waitForCompanion = (timeoutMs) =>
+      new Promise((resolve) => {
+        const started = Date.now();
+        const tick = async () => {
+          if (await pingCompanion()) return resolve(true);
+          if (Date.now() - started >= timeoutMs) return resolve(false);
+          setTimeout(tick, 1500);
+        };
+        tick();
+      });
+
     const runLocal = async () => {
       $('btn').disabled = true;
       $('img-0').style.display = 'none';
       $('img-1').style.display = 'none';
-      $('status').textContent = 'Checking local record.js companion…';
-      try {
-        const ping = await fetch(COMPANION + '/ping', { cache: 'no-store' });
-        if (!ping.ok) throw new Error('ping failed');
-      } catch (e) {
+
+      if (!(await pingCompanion())) {
+        // Companion missing: auto-download the installer, then automatically
+        // detect when it comes online and capture — no second click.
         $('status').innerHTML =
-          'No local record.js service on this PC. Install it once (auto-starts on every login): ' +
-          '<a href="/installer" download style="color:#a78bfa">Download companion installer</a> — ' +
-          'run the downloaded file once, then click the button again.';
-        $('btn').disabled = false;
-        return;
+          'Companion not running. Downloading installer… ' +
+          '<b>Please run the downloaded install-companion.bat file now</b> — ' +
+          'this page is waiting and will capture automatically.';
+        triggerInstallDownload();
+        const ok = await waitForCompanion(90000);
+        if (!ok) {
+          $('status').innerHTML =
+            'Companion not detected after 90s. If the download did not start, ' +
+            '<a href="/installer" download style="color:#a78bfa">download it here</a>, ' +
+            'run it, and click the button again.';
+          $('btn').disabled = false;
+          return;
+        }
+        $('status').textContent = 'Companion detected — starting capture…';
       }
+
       $('status').textContent = 'Running record.js in your browser (Instagram then Facebook)… keep this tab open.';
       try {
         const res = await fetch(COMPANION + '/run?site=both', { cache: 'no-store' });
