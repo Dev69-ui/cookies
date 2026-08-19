@@ -9,7 +9,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/run', async (req, res) => {
   const site = req.query.site === 'facebook' ? 'facebook' : 'instagram';
-  const cookie = req.query.cookie || '';
+  // Cookie from UI paste, else the server-side secret (env var), else none.
+  const cookie = req.query.cookie || process.env[site.toUpperCase() + '_COOKIE'] || '';
   try {
     const png = await capture(site, cookie);
     res.setHeader('Content-Type', 'image/png');

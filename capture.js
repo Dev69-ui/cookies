@@ -120,6 +120,13 @@ async function capture(siteName, cookieStr) {
     const matchUrl = (u) => u.replace(/[?#].*$/, '') === site.url.replace(/[?#].*$/, '');
     const pendingDocs = new Map();
 
+    // When cookies are injected they're valid from the first navigation, so
+    // capture that one (its Cookie header is exactly the pasted value). With
+    // no cookies, the first navigation runs on an empty jar and the SECOND
+    // one carries the cookies Instagram set; capture that one instead.
+    const captureCount = cookieStr ? 1 : 2;
+    let navCount = 0;
+
     // requestWillBeSent headers omit the Cookie header; the authoritative
     // headers (including Cookie) arrive in requestWillBeSentExtraInfo and
     // are correlated by requestId.
@@ -135,6 +142,8 @@ async function capture(siteName, cookieStr) {
       const doc = pendingDocs.get(e.requestId);
       if (!doc) return;
       pendingDocs.delete(e.requestId);
+      navCount += 1;
+      if (navCount !== captureCount) return;
       reqUrl = doc.url;
       method = doc.method;
       requestHeaders = e.headers;
@@ -143,6 +152,7 @@ async function capture(siteName, cookieStr) {
       const doc = pendingDocs.get(e.requestId);
       if (!doc) return;
       pendingDocs.delete(e.requestId);
+      if (navCount !== captureCount) return;
       status = String(e.response.status);
       responseHeaders = e.response.headers;
     });
@@ -154,10 +164,8 @@ async function capture(siteName, cookieStr) {
       await new Promise((r) => setTimeout(r, 2000));
     };
 
-    // First navigation runs on an empty cookie jar (no Cookie header sent).
-    // Cookies are set by its response; the second navigation carries them.
     await load();
-    await load();
+    if (!cookieStr) await load();
 
     const html = renderScreenshot({
       site: site.label,
