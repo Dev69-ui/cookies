@@ -12,17 +12,12 @@
   }
   h1 { font-size: 24px; margin-bottom: 6px; }
   p.sub { color: #9aa4b2; margin-bottom: 28px; text-align: center; }
-  .btns { display: flex; gap: 16px; margin-bottom: 30px; flex-wrap: wrap; justify-content: center; }
   button {
-    font-size: 16px; font-weight: 600; color: #fff; border: none; border-radius: 10px;
+    font-size: 16px; font-weight: 600; color: #fff; background: #8957e5; border: none; border-radius: 10px;
     padding: 14px 28px; cursor: pointer; transition: transform .1s, opacity .2s;
   }
   button:hover { transform: translateY(-2px); }
   button:disabled { opacity: .45; cursor: wait; }
-  .insta { background: linear-gradient(45deg, #f09433, #dc2743, #bc1888); }
-  .fb { background: #1877f2; }
-  .both { background: #2ea44f; }
-  .local { background: #8957e5; }
   .status { color: #9aa4b2; margin-bottom: 20px; min-height: 22px; }
   .results { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; width: 100%; }
   .result-box { flex: 1 1 460px; max-width: 560px; min-width: 320px; }
@@ -32,13 +27,8 @@
 </head>
 <body>
   <h1>Instagram / Facebook Capture</h1>
-  <p class="sub">Capture both header screenshots in one click. Logged-in cookies come from the server env secrets (INSTAGRAM_COOKIE, FACEBOOK_COOKIE).</p>
-  <div class="btns">
-    <button class="insta" onclick="run('instagram', 0)">Instagram</button>
-    <button class="fb" onclick="run('facebook', 1)">Facebook</button>
-    <button class="both" onclick="runBoth()">Capture Both</button>
-    <button class="local" onclick="runLocal()">Capture with your browser (record.js)</button>
-  </div>
+  <p class="sub">Run record.js in your own browser — captures both header screenshots (Instagram then Facebook).</p>
+  <button id="btn" onclick="runLocal()">Capture with your browser (record.js)</button>
   <div class="status" id="status"></div>
   <div class="results">
     <div class="result-box">
@@ -54,81 +44,10 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const SITES = ['instagram', 'facebook'];
-
-    const setBusy = (busy) => {
-      document.querySelectorAll('button').forEach((b) => (b.disabled = busy));
-    };
-
-    const fetchShot = async (site) => {
-      // Render free tier spins down after ~15 min idle; the first request
-      // then hits a 404 "no-server" cold-start window. Retry until warm.
-      const maxAttempts = 8;
-      let lastErr = '';
-      const url = '/run?site=' + site;
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        $('status').textContent =
-          'Running capture for ' + site + '… (attempt ' + attempt + '/' + maxAttempts + ', ~10–45s each)';
-        try {
-          const res = await fetch(url, { cache: 'no-store' });
-          if (!res.ok) {
-            const body = await res.text();
-            const brief = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-            throw new Error('HTTP ' + res.status + (brief ? ' — ' + brief.slice(0, 80) : ''));
-          }
-          const blob = await res.blob();
-          return URL.createObjectURL(blob);
-        } catch (e) {
-          lastErr = e.message;
-          if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, 6000));
-        }
-      }
-      throw new Error('Failed for ' + site + ': ' + lastErr);
-    };
-
-    const run = async (site, index) => {
-      setBusy(true);
-      $('img-' + index).style.display = 'none';
-      $('img-' + (1 - index)).style.display = 'none';
-      try {
-        const url = await fetchShot(site);
-        $('img-' + index).src = url;
-        $('img-' + index).style.display = 'block';
-        $('status').textContent = 'Done — ' + site + ' screenshot below.';
-      } catch (e) {
-        $('status').textContent = 'Error: ' + e.message;
-      } finally {
-        setBusy(false);
-      }
-    };
-
-    const runBoth = async () => {
-      setBusy(true);
-      $('img-0').style.display = 'none';
-      $('img-1').style.display = 'none';
-      const ok = [];
-      try {
-        for (const site of SITES) {
-          const url = await fetchShot(site);
-          const idx = SITES.indexOf(site);
-          $('img-' + idx).src = url;
-          $('img-' + idx).style.display = 'block';
-          ok.push(site);
-        }
-        $('status').textContent = 'Done — ' + (ok.includes('instagram') ? 'Instagram' : '') +
-          (ok.length > 1 ? ' and ' : '') + (ok.includes('facebook') ? 'Facebook' : '') + ' captured below.';
-      } catch (e) {
-        $('status').textContent = 'Error: ' + e.message;
-      } finally {
-        setBusy(false);
-      }
-    };
-
-    // Runs the REAL record.js flow on the visitor's own PC via the local
-    // companion service (http://127.0.0.1:9876). Browsers allow an HTTPS page
-    // to reach 127.0.0.1, so this works while companion.js is running locally.
     const COMPANION = 'http://127.0.0.1:9876';
+
     const runLocal = async () => {
-      setBusy(true);
+      $('btn').disabled = true;
       $('img-0').style.display = 'none';
       $('img-1').style.display = 'none';
       $('status').textContent = 'Checking local companion…';
@@ -138,7 +57,7 @@
       } catch (e) {
         $('status').textContent =
           'No local record.js service on this PC. Run  node companion.js  in your cookies folder, then click again.';
-        setBusy(false);
+        $('btn').disabled = false;
         return;
       }
       $('status').textContent = 'Running record.js in your browser (Instagram then Facebook)… keep this tab open.';
@@ -156,7 +75,7 @@
       } catch (e) {
         $('status').textContent = 'Error: ' + e.message;
       } finally {
-        setBusy(false);
+        $('btn').disabled = false;
       }
     };
   </script>
