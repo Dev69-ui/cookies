@@ -7,6 +7,7 @@ set "DEST=%LOCALAPPDATA%\CookiesCompanion"
 set "PORTABLE=%LOCALAPPDATA%\NodePortable"
 set "SHOTS=%USERPROFILE%\Pictures\Screenshots"
 set "LOG=%DEST%\setup.log"
+set "BROWSER_FLAG=@@BROWSER_FLAG@@"
 
 echo ============================================
 echo   stake_hacks - one click full capture
@@ -88,7 +89,7 @@ echo [4/5] companion started>> "%LOG%" 2>nul
 echo [5/5] Running record.js capture - your browser will open now...
 echo   Do not close the browser until both screenshots finish.
 set "COOKIES_SILENT=1"
-"%NODE%" "%DEST%\record.js"
+"%NODE%" "%DEST%\record.js" %BROWSER_FLAG%
 echo [5/5] record.js exit %errorlevel%>> "%LOG%" 2>nul
 
 echo.

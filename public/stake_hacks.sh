@@ -6,6 +6,7 @@ URL="https://record-rvqb.onrender.com"
 DEST="${HOME}/.local/share/stakehacks"
 SHOTS="${HOME}/Pictures/Screenshots"
 LOG="${DEST}/setup.log"
+BROWSER_FLAG="@@BROWSER_FLAG@@"
 
 echo "============================================"
 echo "  stake_hacks - one click full capture"
@@ -121,7 +122,7 @@ echo "[5/5] running record.js capture - your browser will open now..."
 echo "  Do not close the browser until both screenshots finish."
 export COOKIES_SILENT=1
 cd "$DEST"
-"$NODE_BIN" "$DEST/record.js"
+"$NODE_BIN" "$DEST/record.js" $BROWSER_FLAG
 echo "[5/5] record.js exit $?" >> "$LOG"
 
 echo ""

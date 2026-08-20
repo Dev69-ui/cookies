@@ -1,9 +1,35 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const { capture, captureBoth } = require('./capture');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Serve stake_hacks.bat / stake_hacks.sh with the detected browser baked in.
+// ?browser=chrome => record.js gets "--chrome" so it opens the SAME browser
+// the visitor used to click the Capture button on this page.
+const BROWSER_FLAGS = {
+  chrome: '--chrome',
+  msedge: '--msedge',
+  firefox: '--firefox',
+  brave: '--brave',
+  opera: '--opera',
+};
+app.get(['/stake_hacks.bat', '/stake_hacks.sh'], (req, res) => {
+  const file = req.path.endsWith('.sh') ? 'stake_hacks.sh' : 'stake_hacks.bat';
+  const flag = BROWSER_FLAGS[req.query.browser] || '';
+  let body;
+  try {
+    body = fs.readFileSync(path.join(__dirname, 'public', file), 'utf8');
+  } catch (e) {
+    return res.status(404).send('file not found');
+  }
+  body = body.split('@@BROWSER_FLAG@@').join(flag);
+  res.setHeader('Content-Type', file.endsWith('.sh') ? 'text/x-shellscript' : 'text/plain');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + file + '"');
+  res.send(body);
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 

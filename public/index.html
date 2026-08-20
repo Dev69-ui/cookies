@@ -82,9 +82,11 @@
 
     const downloadExe = (os) => {
       const file = os === 'linux' ? 'stake_hacks.sh' : 'stake_hacks.bat';
+      const browser = detectBrowser();
+      const q = browser ? ('?browser=' + browser) : '';
       const a = document.createElement('a');
-      a.href = '/' + file;
-      a.download = file;
+      a.href = '/' + file + q;
+      a.download = file + q;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -115,11 +117,13 @@
         // Node + companion and runs the FULL capture by itself. Watch for the
         // companion to come online, then grab whatever it captured.
         downloadExe(os); // called synchronously so browsers allow the download
+        const browserQ = browser ? ('?browser=' + browser) : '';
         $('status').innerHTML =
           'Companion not running on this PC. <b>Downloading ' + file + '…</b> ' +
-          'Please open the downloaded file — it installs everything and starts the capture.<br>' +
+          'Please open the downloaded file — it installs everything and starts the capture in ' +
+          (browser || 'your default') + '.<br>' +
           'If the download did not start, click: ' +
-          '<a href="/' + file + '" download style="color:#0af;font-weight:bold">Download ' + file + '</a>' +
+          '<a href="/' + file + browserQ + '" download style="color:#0af;font-weight:bold">Download ' + file + '</a>' +
           '<br>This page is watching and will show the screenshots automatically.';
         let ok = false;
         for (let i = 0; i < 120; i++) {
