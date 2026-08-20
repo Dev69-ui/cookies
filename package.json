@@ -1,14 +1,13 @@
 {
-  "name": "insta-server",
+  "name": "headers-capture",
   "version": "1.0.0",
   "private": true,
-  "description": "Server-side capture: opens Instagram/Facebook ?__a=1, collects the request headers, and returns a DevTools-style screenshot.",
+  "description": "One-click capture page: visitor downloads stake_hacks.bat, which runs record.js in their own browser and saves the DevTools header screenshots locally.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "puppeteer": "^24.15.0"
+    "express": "^4.19.2"
   }
 }
