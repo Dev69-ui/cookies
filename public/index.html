@@ -71,12 +71,12 @@
           }
           const data = await res.json();
           if (data.instagram) {
-            $('#img-0').src = data.instagram;
-            $('#img-0').style.display = 'block';
+            $('img-0').src = data.instagram;
+            $('img-0').style.display = 'block';
           }
           if (data.facebook) {
-            $('#img-1').src = data.facebook;
-            $('#img-1').style.display = 'block';
+            $('img-1').src = data.facebook;
+            $('img-1').style.display = 'block';
           }
           if (!data.instagram && !data.facebook) throw new Error('no screenshots returned');
           $('status').textContent = 'Done — both screenshots captured below.';
