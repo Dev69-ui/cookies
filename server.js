@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const { capture } = require('./capture');
+const { capture, captureBoth } = require('./capture');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,6 +18,24 @@ app.get('/run', async (req, res) => {
   } catch (err) {
     console.error('capture failed:', err);
     res.status(500).send('Capture failed: ' + err.message);
+  }
+});
+
+// One request, one browser, both sites — Recommended. Uses far less memory
+// than two separate /run calls (Render free tier is 512MB).
+app.get('/run-all', async (req, res) => {
+  const cookieInsta = process.env.INSTAGRAM_COOKIE || '';
+  const cookieFb = process.env.FACEBOOK_COOKIE || '';
+  try {
+    const { instagram, facebook } = await captureBoth(cookieInsta, cookieFb);
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify({
+      instagram: 'data:image/png;base64,' + instagram.toString('base64'),
+      facebook: 'data:image/png;base64,' + facebook.toString('base64'),
+    }));
+  } catch (err) {
+    console.error('captureBoth failed:', err);
+    res.status(500).json({ error: 'Capture failed: ' + err.message });
   }
 });
 

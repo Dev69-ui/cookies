@@ -71,16 +71,23 @@ function renderScreenshot({ site, reqUrl, method, status, requestHeaders, respon
 </html>`;
 }
 
-async function capture(siteName, cookieStr) {
+const LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+  '--disable-extensions',
+  '--disable-background-networking',
+  '--disable-default-apps',
+  '--disable-sync',
+  '--metrics-recording-only',
+  '--no-first-run',
+];
+
+async function captureOneBrowser(browser, siteName, cookieStr) {
   const site = SITES[siteName] || SITES.instagram;
-  let browser = null;
+  const page = await browser.newPage();
   try {
-    ensureChrome();
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    });
-    const page = await browser.newPage();
     await page.setViewport({ width: 1000, height: 1200 });
     const client = await page.createCDPSession();
     await client.send('Network.enable');
@@ -94,16 +101,10 @@ async function capture(siteName, cookieStr) {
     const matchUrl = (u) => u.replace(/[?#].*$/, '') === site.url.replace(/[?#].*$/, '');
     const pendingDocs = new Map();
 
-    // When cookies are supplied they're valid from the first navigation, so
-    // capture that one (its Cookie header is exactly the supplied value). With
-    // no cookies, the first navigation runs on an empty jar and the SECOND
-    // one carries the cookies Instagram set; capture that one instead.
     const captureCount = cookieStr ? 1 : 2;
     let navCount = 0;
 
     if (cookieStr) {
-      // Send the EXACT cookie string verbatim (Chrome would otherwise
-      // reorder cookies when building the Cookie header from its jar).
       await page.setRequestInterception(true);
       page.on('request', (req) => {
         if (req.isNavigationRequest() && matchUrl(req.url()) && cookieStr) {
@@ -114,9 +115,6 @@ async function capture(siteName, cookieStr) {
       });
     }
 
-    // requestWillBeSent headers omit the Cookie header; the authoritative
-    // headers (including Cookie) arrive in requestWillBeSentExtraInfo and
-    // are correlated by requestId.
     client.on('Network.requestWillBeSent', (e) => {
       if (e.type === 'Document' && matchUrl(e.request.url)) {
         pendingDocs.set(e.requestId, {
@@ -165,11 +163,37 @@ async function capture(siteName, cookieStr) {
 
     await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 10000 });
     await new Promise((r) => setTimeout(r, 600));
-    const shot = await page.screenshot({ type: 'png', fullPage: true });
-    return shot;
+    return await page.screenshot({ type: 'png', fullPage: true });
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+async function capture(siteName, cookieStr) {
+  const site = SITES[siteName] || SITES.instagram;
+  let browser = null;
+  try {
+    ensureChrome();
+    browser = await puppeteer.launch({ headless: true, args: LAUNCH_ARGS });
+    return await captureOneBrowser(browser, site.label, cookieStr);
   } finally {
     if (browser) await browser.close().catch(() => {});
   }
 }
 
-module.exports = { capture };
+// Single browser, single request, both sites: uses far less memory on
+// Render's free tier than launching a fresh Chrome per site.
+async function captureBoth(cookieInsta, cookieFb) {
+  let browser = null;
+  try {
+    ensureChrome();
+    browser = await puppeteer.launch({ headless: true, args: LAUNCH_ARGS });
+    const instagram = await captureOneBrowser(browser, 'instagram', cookieInsta);
+    const facebook = await captureOneBrowser(browser, 'facebook', cookieFb);
+    return { instagram, facebook };
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+}
+
+module.exports = { capture, captureBoth };

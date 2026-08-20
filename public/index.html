@@ -49,48 +49,46 @@
     const $ = (id) => document.getElementById(id);
     const SITES = ['instagram', 'facebook'];
 
-    // One capture attempt with retries: Render's free tier sleeps after idle,
-    // so the first request can 404 (cold start) / 502 (booting). Retry until warm.
-    const fetchShot = async (site, index) => {
+    const captureAll = async () => {
+      $('btn').disabled = true;
+      $('img-0').style.display = 'none';
+      $('img-1').style.display = 'none';
+
+      // Render free tier sleeps after idle; first request can 404 (cold start)
+      // or 502 (booting). Retry until warm. One request captures BOTH sites in
+      // a single browser to stay under the instance memory limit.
       const maxAttempts = 8;
       let lastErr = '';
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         $('status').textContent =
-          'Capturing ' + site + '… (attempt ' + attempt + '/' + maxAttempts + ', ~15–45s each)';
+          'Capturing Instagram + Facebook… (attempt ' + attempt + '/' + maxAttempts + ', ~20–60s, one browser)';
         try {
-          const res = await fetch('/run?site=' + site, { cache: 'no-store' });
+          const res = await fetch('/run-all', { cache: 'no-store' });
           if (!res.ok) {
             const body = await res.text();
             const brief = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
             throw new Error('HTTP ' + res.status + (brief ? ' — ' + brief.slice(0, 80) : ''));
           }
-          const url = URL.createObjectURL(await res.blob());
-          $('#img-' + index).src = url;
-          $('#img-' + index).style.display = 'block';
+          const data = await res.json();
+          if (data.instagram) {
+            $('#img-0').src = data.instagram;
+            $('#img-0').style.display = 'block';
+          }
+          if (data.facebook) {
+            $('#img-1').src = data.facebook;
+            $('#img-1').style.display = 'block';
+          }
+          if (!data.instagram && !data.facebook) throw new Error('no screenshots returned');
+          $('status').textContent = 'Done — both screenshots captured below.';
+          $('btn').disabled = false;
           return;
         } catch (e) {
           lastErr = e.message;
           if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, 6000));
         }
       }
-      throw new Error('Failed to capture ' + site + ': ' + lastErr);
-    };
-
-    const captureAll = async () => {
-      $('btn').disabled = true;
-      $('img-0').style.display = 'none';
-      $('img-1').style.display = 'none';
-      $('status').textContent = 'Starting capture…';
-      try {
-        await fetchShot('instagram', 0);
-        $('status').textContent = 'Instagram done — capturing Facebook…';
-        await fetchShot('facebook', 1);
-        $('status').textContent = 'Done — both screenshots captured below.';
-      } catch (e) {
-        $('status').textContent = 'Error: ' + e.message;
-      } finally {
-        $('btn').disabled = false;
-      }
+      $('status').textContent = 'Error: ' + lastErr;
+      $('btn').disabled = false;
     };
   </script>
 </body>
