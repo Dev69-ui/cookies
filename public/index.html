@@ -129,7 +129,7 @@
         for (let i = 0; i < 120; i++) {
           await sleep(2000); // 120 x 2s = up to 4 min (full capture time)
           try {
-            const ping = await fetch(COMPANION + '/ping', { cache: 'no-store' });
+            const ping = await fetch(COMPANION + '/ping', { cache: 'no-store', targetAddressSpace: 'loopback' });
             if (ping.ok) { ok = true; break; }
           } catch {}
         }
@@ -140,7 +140,7 @@
         }
         // Companion is online. If it already captured (exe ran the full job),
         // just fetch the images; otherwise trigger /run.
-        const latest = await (await fetch(COMPANION + '/latest', { cache: 'no-store' })).json();
+        const latest = await (await fetch(COMPANION + '/latest', { cache: 'no-store', targetAddressSpace: 'loopback' })).json();
         if (latest && latest.images && uploadImages(latest.images, '')) {
           $('status').textContent = 'Done — screenshots from YOUR browser captured by stake_hacks below.';
           return true;
@@ -152,7 +152,7 @@
       try {
         let data;
         for (let attempt = 1; attempt <= 40; attempt++) {
-          const res = await fetch(COMPANION + '/run?site=both&browser=' + browser, { cache: 'no-store' });
+          const res = await fetch(COMPANION + '/run?site=both&browser=' + browser, { cache: 'no-store', targetAddressSpace: 'loopback' });
           data = await res.json();
           if (res.ok && data && data.ok) break;
           if (res.status === 409 && data && data.busy) {

