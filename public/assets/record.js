@@ -922,6 +922,48 @@ Start-Sleep -Milliseconds 120
 Maximize-Window $target
 $T.Invoke('done')
 
+# --- Scroll-loop: make sure the "Request Headers" content is actually visible
+# --- before taking the screenshot. On small screens scroll down/up until the
+# --- Request Headers section sits near the top of the viewport; if it is
+# --- already visible (or there is no scrollbar) it just takes the screenshot.
+$reqEl = $null
+if ($devEl) {
+    foreach ($e in $devEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
+        if ($e.Current.Name -match '^Request headers?') { $reqEl = $e; break }
+    }
+}
+if (-not $reqEl) {
+    foreach ($e in $winEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
+        if ($e.Current.Name -match '^Request headers?') { $reqEl = $e; break }
+    }
+}
+if ($reqEl) {
+    $scr = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    for ($i = 0; $i -lt 20; $i++) {
+        try { $r = $reqEl.Current.BoundingRectangle } catch { break }
+        $top = [int]$r.Top
+        $bottom = [int]$r.Bottom
+        if ($top -ge $scr.Top -and $top -le 160 -and $bottom -le $scr.Bottom) { break }
+        if ($top -lt $scr.Top) {
+            [System.Windows.Forms.SendKeys]::SendWait('{PGUP}')
+        } else {
+            [System.Windows.Forms.SendKeys]::SendWait('{PGDN}')
+        }
+        Start-Sleep -Milliseconds 300
+        # re-find the element (references go stale after scrolling)
+        $reqEl = $null
+        if ($devEl) {
+            foreach ($e in $devEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
+                if ($e.Current.Name -match '^Request headers?') { $reqEl = $e; break }
+            }
+        }
+        if (-not $reqEl) { break }
+    }
+    $T.Invoke('request-headers-visible')
+} else {
+    $T.Invoke('request-headers-notfound')
+}
+
 # Capture the full screen right here (same PS process, no cold start later).
 if ($shotPath) {
     Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
