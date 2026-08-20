@@ -42,7 +42,7 @@ function toDataUrl(rel) {
   return 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
 }
 
-function runRecordJs() {
+function runRecordJs(browserFlag) {
   return new Promise((resolve) => {
     for (const rel of Object.values(OUT_FILES)) {
       const p = path.join(screenshots, rel);
@@ -50,7 +50,9 @@ function runRecordJs() {
         fs.unlinkSync(p);
       } catch {}
     }
-    const child = spawn(process.execPath, [recordJs], {
+    const args = [recordJs];
+    if (browserFlag) args.push(browserFlag);
+    const child = spawn(process.execPath, args, {
       cwd: __dirname,
       stdio: 'ignore',
       detached: false,
@@ -100,12 +102,21 @@ const server = http.createServer((req, res) => {
     if (!['instagram', 'facebook', 'both'].includes(site)) {
       return sendJson(res, 400, { error: 'site must be instagram, facebook or both' });
     }
+    // Map the browser the visitor clicked in to record.js's CLI flag.
+    const browserFlagMap = {
+      chrome: '--chrome',
+      msedge: '--edge',
+      firefox: '--firefox',
+      brave: '--brave',
+      opera: '--opera',
+    };
+    const browserFlag = browserFlagMap[u.searchParams.get('browser')] || '';
     if (busy) {
       return sendJson(res, 409, { error: 'already running', busy: true });
     }
     busy = true;
-    console.log(`[companion] /run site=${site} — starting record.js in your browser...`);
-    runRecordJs()
+    console.log(`[companion] /run site=${site} browserFlag=${browserFlag || '(default)'} — starting record.js in your browser...`);
+    runRecordJs(browserFlag)
       .then((timedOut) => {
         busy = false;
         let images = {};

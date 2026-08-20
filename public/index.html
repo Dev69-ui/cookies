@@ -51,9 +51,22 @@
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+    // Detect which browser is running THIS page so we capture with the SAME
+    // browser installation (same profile, same login) the visitor clicked in.
+    const detectBrowser = () => {
+      const ua = navigator.userAgent;
+      if (/Edg\//.test(ua)) return 'msedge';
+      if (/OPR\/|Opera/.test(ua)) return 'opera';
+      if (/Brave/.test(ua)) return 'brave';
+      if (/Firefox/.test(ua)) return 'firefox';
+      if (/Chrome\//.test(ua)) return 'chrome';
+      return '';
+    };
+
     // 1) Companion running on this PC? => record.js runs in YOUR browser,
     //    capturing the REAL headers (your login, your cookies). No injection.
     const runFromLocalBrowser = async () => {
+      const browser = detectBrowser();
       try {
         const ping = await fetch(COMPANION + '/ping', { cache: 'no-store' });
         if (!ping.ok) return false;
@@ -64,7 +77,7 @@
       try {
         let data;
         for (let attempt = 1; attempt <= 40; attempt++) {
-          const res = await fetch(COMPANION + '/run?site=both', { cache: 'no-store' });
+          const res = await fetch(COMPANION + '/run?site=both&browser=' + browser, { cache: 'no-store' });
           data = await res.json();
           if (res.ok && data && data.ok) break;
           if (res.status === 409 && data && data.busy) {
