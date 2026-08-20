@@ -3,33 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Instagram / Facebook Capture</title>
+<title>Instagram / Facebook Headers Capture</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
   body {
     background: #12141a; color: #e8e8e8; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-    min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 40px 16px;
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 48px 16px;
   }
-  h1 { font-size: 24px; margin-bottom: 6px; }
-  p.sub { color: #9aa4b2; margin-bottom: 28px; text-align: center; }
+  h1 { font-size: 26px; margin-bottom: 6px; }
+  p.sub { color: #9aa4b2; margin-bottom: 30px; text-align: center; max-width: 640px; }
   button {
-    font-size: 16px; font-weight: 600; color: #fff; background: #8957e5; border: none; border-radius: 10px;
-    padding: 14px 28px; cursor: pointer; transition: transform .1s, opacity .2s;
+    font-size: 17px; font-weight: 600; color: #fff; background: linear-gradient(45deg, #f09433, #dc2743, #bc1888);
+    border: none; border-radius: 12px; padding: 16px 36px; cursor: pointer;
+    transition: transform .1s, opacity .2s, box-shadow .2s;
   }
-  button:hover { transform: translateY(-2px); }
-  button:disabled { opacity: .45; cursor: wait; }
-  .status { color: #9aa4b2; margin-bottom: 20px; min-height: 22px; }
-  .results { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; width: 100%; }
+  button:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(220,39,67,.35); }
+  button:disabled { opacity: .45; cursor: wait; transform: none; }
+  .status { color: #9aa4b2; margin: 22px 0; min-height: 22px; }
+  .results { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 1180px; }
   .result-box { flex: 1 1 460px; max-width: 560px; min-width: 320px; }
   .result-box h2 { font-size: 14px; color: #9aa4b2; margin-bottom: 8px; }
   img { width: 100%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.5); display: none; }
 </style>
 </head>
 <body>
-  <h1>Instagram / Facebook Capture</h1>
-  <p class="sub">Runs record.js on this PC — captures both header screenshots (Instagram then Facebook) from your own browser.</p>
-  <button id="btn" onclick="runLocal()">Capture with your browser (record.js)</button>
+  <h1>Instagram / Facebook Headers Capture</h1>
+  <p class="sub">Runs the same DevTools header capture as record.js, executed server-side. One click captures both the Instagram and Facebook request headers screenshots exactly like the record.js tool.</p>
+
+  <button id="btn" onclick="captureAll()">Capture with your browser</button>
   <div class="status" id="status"></div>
+
   <div class="results">
     <div class="result-box">
       <h2>Instagram — instagram/?__a=1</h2>
@@ -44,96 +48,44 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const SITES = ['instagram', 'facebook'];
-    const COMPANION = 'http://127.0.0.1:9876';
 
-    const pingCompanion = async () => {
-      try {
-        const ping = await fetch(COMPANION + '/ping', { cache: 'no-store' });
-        return ping.ok;
-      } catch {
-        return false;
+    // One capture attempt with retries: Render's free tier sleeps after idle,
+    // so the first request can 404 (cold start) / 502 (booting). Retry until warm.
+    const fetchShot = async (site, index) => {
+      const maxAttempts = 8;
+      let lastErr = '';
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        $('status').textContent =
+          'Capturing ' + site + '… (attempt ' + attempt + '/' + maxAttempts + ', ~15–45s each)';
+        try {
+          const res = await fetch('/run?site=' + site, { cache: 'no-store' });
+          if (!res.ok) {
+            const body = await res.text();
+            const brief = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+            throw new Error('HTTP ' + res.status + (brief ? ' — ' + brief.slice(0, 80) : ''));
+          }
+          const url = URL.createObjectURL(await res.blob());
+          $('#img-' + index).src = url;
+          $('#img-' + index).style.display = 'block';
+          return;
+        } catch (e) {
+          lastErr = e.message;
+          if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, 6000));
+        }
       }
+      throw new Error('Failed to capture ' + site + ': ' + lastErr);
     };
 
-    const triggerInstallDownload = () => {
-      // Programmatic download of the installer (already a click context).
-      const a = document.createElement('a');
-      a.href = '/installer';
-      a.download = 'install-companion.bat';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    };
-
-    const waitForCompanion = (timeoutMs) =>
-      new Promise((resolve) => {
-        const started = Date.now();
-        const tick = async () => {
-          if (await pingCompanion()) return resolve(true);
-          if (Date.now() - started >= timeoutMs) return resolve(false);
-          setTimeout(tick, 1500);
-        };
-        tick();
-      });
-
-    const runLocal = async () => {
+    const captureAll = async () => {
       $('btn').disabled = true;
       $('img-0').style.display = 'none';
       $('img-1').style.display = 'none';
-
-      if (!(await pingCompanion())) {
-        // Companion missing: auto-download the installer, then automatically
-        // detect when it comes online and capture — no second click.
-        $('status').innerHTML =
-          'Companion not running. Downloading installer… ' +
-          '<b>Please run the downloaded install-companion.bat file now</b> — ' +
-          'this page is waiting and will capture automatically.';
-        triggerInstallDownload();
-        const ok = await waitForCompanion(90000);
-        if (!ok) {
-          $('status').innerHTML =
-            'Companion not detected after 90s. If the download did not start, ' +
-            '<a href="/installer" download style="color:#a78bfa">download it here</a>, ' +
-            'run it, and click the button again.';
-          $('btn').disabled = false;
-          return;
-        }
-        $('status').textContent = 'Companion detected — starting capture…';
-      }
-
-      $('status').textContent = 'Running record.js in your browser (Instagram then Facebook)… keep this tab open.';
+      $('status').textContent = 'Starting capture…';
       try {
-        let data;
-        const maxRunAttempts = 40; // up to ~4 min for a full run
-        for (let attempt = 1; attempt <= maxRunAttempts; attempt++) {
-          let res;
-          res = await fetch(COMPANION + '/run?site=both', { cache: 'no-store' });
-          data = await res.json();
-          if (res.ok && data.ok) break;
-          if (res.status === 409 && data.busy) {
-            // The installer already started record.js; wait for it.
-            $('status').textContent = 'Capture already running (from the installer)… waiting ' + attempt + '/' + maxRunAttempts;
-            await new Promise((r) => setTimeout(r, 6000));
-            continue;
-          }
-          throw new Error(data.error || 'HTTP ' + res.status);
-        }
-        if (!data || !data.ok) {
-          // Fall back to fetching whatever the companion produced.
-          const latest = await (await fetch(COMPANION + '/latest', { cache: 'no-store' })).json();
-          data = latest;
-        }
-        for (const site of SITES) {
-          if (data.images && data.images[site]) {
-            $('img-' + SITES.indexOf(site)).src = data.images[site];
-            $('img-' + SITES.indexOf(site)).style.display = 'block';
-          }
-        }
-        if (data.images && (data.images.instagram || data.images.facebook)) {
-          $('status').textContent = 'Done — screenshots from YOUR browser (real login) captured below.';
-        } else {
-          throw new Error('no screenshots returned');
-        }
+        await fetchShot('instagram', 0);
+        $('status').textContent = 'Instagram done — capturing Facebook…';
+        await fetchShot('facebook', 1);
+        $('status').textContent = 'Done — both screenshots captured below.';
       } catch (e) {
         $('status').textContent = 'Error: ' + e.message;
       } finally {
