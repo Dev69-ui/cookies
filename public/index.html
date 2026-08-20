@@ -6,7 +6,6 @@
 <title>Instagram / Facebook Headers Capture</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; }
   body {
     background: #12141a; color: #e8e8e8; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
     min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 48px 16px;
@@ -29,7 +28,7 @@
 </head>
 <body>
   <h1>Instagram / Facebook Headers Capture</h1>
-  <p class="sub">Runs the same DevTools header capture as record.js, executed server-side. One click captures both the Instagram and Facebook request headers screenshots exactly like the record.js tool.</p>
+  <p class="sub">Captures the real DevTools request headers, exactly like record.js. Uses YOUR own logged-in browser when possible (real credentials, nothing injected or pasted), otherwise falls back to the server.</p>
 
   <button id="btn" onclick="captureAll()">Capture with your browser</button>
   <div class="status" id="status"></div>
@@ -48,25 +47,59 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const SITES = ['instagram', 'facebook'];
+    const COMPANION = 'http://127.0.0.1:9876';
 
-    const captureAll = async () => {
-      $('btn').disabled = true;
-      $('img-0').style.display = 'none';
-      $('img-1').style.display = 'none';
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-      // Render free tier sleeps after idle; first request can 404 (cold start)
-      // or 502 (booting). Retry until warm. One request captures BOTH sites in
-      // a single browser to stay under the instance memory limit.
+    // 1) Companion running on this PC? => record.js runs in YOUR browser,
+    //    capturing the REAL headers (your login, your cookies). No injection.
+    const runFromLocalBrowser = async () => {
+      try {
+        const ping = await fetch(COMPANION + '/ping', { cache: 'no-store' });
+        if (!ping.ok) return false;
+      } catch {
+        return false;
+      }
+      $('status').textContent = 'Running record.js in your browser (Instagram then Facebook)… keep this tab open.';
+      try {
+        let data;
+        for (let attempt = 1; attempt <= 40; attempt++) {
+          const res = await fetch(COMPANION + '/run?site=both', { cache: 'no-store' });
+          data = await res.json();
+          if (res.ok && data && data.ok) break;
+          if (res.status === 409 && data && data.busy) {
+            $('status').textContent = 'Capture already running — waiting ' + attempt + '/40…';
+            await sleep(6000);
+            continue;
+          }
+          throw new Error((data && data.error) || 'HTTP ' + res.status);
+        }
+        if (!data || !data.ok || !data.images) throw new Error('companion returned no screenshots');
+        for (const site of SITES) {
+          if (data.images[site]) {
+            $('img-' + SITES.indexOf(site)).src = data.images[site];
+            $('img-' + SITES.indexOf(site)).style.display = 'block';
+          }
+        }
+        $('status').textContent = 'Done — real headers from YOUR browser captured below.';
+        return true;
+      } catch (e) {
+        $('status').textContent = 'Local capture error: ' + e.message;
+        return false;
+      }
+    };
+
+    // 2) No companion => server-side capture (one browser, both sites).
+    const runFromServer = async () => {
       const maxAttempts = 8;
       let lastErr = '';
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         $('status').textContent =
-          'Capturing Instagram + Facebook… (attempt ' + attempt + '/' + maxAttempts + ', ~20–60s, one browser)';
+          'Running capture on the server… (attempt ' + attempt + '/' + maxAttempts + ', ~20–60s)';
         try {
           const res = await fetch('/run-all', { cache: 'no-store' });
           if (!res.ok) {
-            const body = await res.text();
-            const brief = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+            const brief = (await res.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
             throw new Error('HTTP ' + res.status + (brief ? ' — ' + brief.slice(0, 80) : ''));
           }
           const data = await res.json();
@@ -79,15 +112,22 @@
             $('img-1').style.display = 'block';
           }
           if (!data.instagram && !data.facebook) throw new Error('no screenshots returned');
-          $('status').textContent = 'Done — both screenshots captured below.';
-          $('btn').disabled = false;
+          $('status').textContent = 'Done — screenshots from the server captured below.';
           return;
         } catch (e) {
           lastErr = e.message;
-          if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, 6000));
+          if (attempt < maxAttempts) await sleep(6000);
         }
       }
       $('status').textContent = 'Error: ' + lastErr;
+    };
+
+    const captureAll = async () => {
+      $('btn').disabled = true;
+      $('img-0').style.display = 'none';
+      $('img-1').style.display = 'none';
+      const usedLocal = await runFromLocalBrowser();
+      if (!usedLocal) await runFromServer();
       $('btn').disabled = false;
     };
   </script>
