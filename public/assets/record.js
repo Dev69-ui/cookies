@@ -61,7 +61,7 @@ function showMessage(text, title) {
   }
   // Linux: try zenity, then console
   try {
-    if (execFileSync('zenity', ['--version'], { stdio: 'ignore' }, (e) => {})) {
+    if (execFileSync('zenity', ['--version'], { stdio: 'ignore' })) {
       runDetached('zenity', ['--info', '--title', title, '--text', text]);
       return Promise.resolve();
     }
@@ -93,10 +93,18 @@ function regQuery(key, value) {
   }
 }
 
+function exeExists(name, exeName) {
+  for (const key of [
+    `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
+    `HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
+    `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
+  ]) {
+    if (regQuery(key, '')) return true;
+  }
+  return false;
+}
+
 function getDefaultBrowserName() {
-  // Prefer the OS-registered default browser (this matches what the user
-  // actually wants, e.g. Firefox on this machine), then fall back to the
-  // first installed browser.
   const progId = regQuery('HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice', 'ProgId');
   if (progId) {
     if (progId.startsWith('Firefox')) return 'firefox';
@@ -116,17 +124,6 @@ function getDefaultBrowserName() {
     if (exeExists(name, cfg.exe)) return name;
   }
   return null;
-}
-
-function exeExists(name, exeName) {
-  for (const key of [
-    `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
-    `HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
-    `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
-  ]) {
-    if (regQuery(key, '')) return true;
-  }
-  return false;
 }
 
 function getBrowserExe(name) {
@@ -207,8 +204,8 @@ function getDefaultBrowserNameMac() {
 
 // ============================ Launch browser ============================
 const SITES = {
-  instagram: { url: 'https://www.instagram.com/instagram/?__a=1', rowTail: 'instagram/?__a=1' },
-  facebook: { url: 'https://www.facebook.com/facebook/?__a=1', rowTail: 'facebook/?__a=1' },
+  instagram: { key: 'instagram', url: 'https://www.instagram.com/instagram/?__a=1', rowTail: 'instagram/?__a=1' },
+  facebook: { key: 'facebook', url: 'https://www.facebook.com/facebook/?__a=1', rowTail: 'facebook/?__a=1' },
 };
 
 function getSiteUsername(site) {
@@ -223,8 +220,6 @@ function getDevToolsFlag(name) {
 function launchBrowser(name, exe, site) {
   const url = site.url;
   const flagArg = getDevToolsFlag(name);
-  // Chromium launches with extensions/extras disabled so the "Bookmark Saver"
-  // popup and welcome pages never auto-open during recording.
   const extra = name && name !== 'firefox' ? ['--disable-extensions', '--no-first-run', '--disable-default-apps'] : [];
   if (IS_WIN) {
     if (exe) {
@@ -259,19 +254,22 @@ function takeScreenshot(outPath) {
       `$g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size); ` +
       `$bmp.Save('${outPath.replace(/'/g, "''")}', [System.Drawing.Imaging.ImageFormat]::Png); ` +
       `$g.Dispose(); $bmp.Dispose()`;
-    return runPS(script).then((r) => fs.existsSync(outPath));
+    return runPS(script).then(() => fs.existsSync(outPath));
   }
-  if (fs.existsSync('/usr/bin/screencapture')) {
-    runDetached('/usr/bin/screencapture', ['-x', outPath]);
-    return Promise.resolve(true);
-  }
-  if (fs.existsSync('/usr/bin/scrot')) {
-    runDetached('/usr/bin/scrot', ['-z', outPath]);
-    return Promise.resolve(true);
-  }
-  if (fs.existsSync('/usr/bin/gnome-screenshot')) {
-    runDetached('/usr/bin/gnome-screenshot', ['-f', outPath]);
-    return Promise.resolve(true);
+  
+  const utilities = [
+    { bin: '/usr/bin/screencapture', args: ['-x', outPath] },
+    { bin: '/usr/bin/maim', args: [outPath] },
+    { bin: '/usr/bin/scrot', args: ['-z', outPath] },
+    { bin: '/usr/bin/gnome-screenshot', args: ['-f', outPath] },
+    { bin: '/usr/bin/import', args: ['-window', 'root', outPath] },
+  ];
+
+  for (const u of utilities) {
+    if (fs.existsSync(u.bin)) {
+      runDetached(u.bin, u.args);
+      return Promise.resolve(true);
+    }
   }
   return Promise.resolve(false);
 }
@@ -301,7 +299,7 @@ function closeBrowser(name) {
 function linuxShowScriptFor(browserName) {
   const cls = (LINUX_WINDOW_CLASS[browserName] || browserName || 'chrome');
   const devKey = browserName === 'firefox' ? 'ctrl+shift+k' : 'ctrl+shift+j';
-  const netKey = browserName === 'firefox' ? 'ctrl+shift+e' : 'ctrl+shift+e';
+  const netKey = 'ctrl+shift+e';
   return `
 BN="${cls}"
 WID=""
@@ -344,7 +342,9 @@ function runLinuxShowScript(name) {
   const script = linuxShowScriptFor(name);
   const tmp = path.join(os.tmpdir(), `cookies_show_${Date.now()}.sh`);
   fs.writeFileSync(tmp, script, { mode: 0o755 });
-  runDetached('bash', [tmp]);
+  const child = spawn('bash', [tmp], { stdio: 'ignore', detached: true });
+  child.unref();
+  setTimeout(() => { try { fs.unlinkSync(tmp); } catch {} }, 120000);
 }
 
 // ============================ Mac console automation (AppleScript) ============================
@@ -363,25 +363,23 @@ tell application "System Events"
   end try
   delay 0.5
   try
-    keystroke "f" using {control down, command down} -- true full screen
+    keystroke "f" using {control down, command down}
   end try
   delay 1
   try
-    keystroke "j" using {command down, option down, shift down} -- DevTools
+    keystroke "j" using {command down, option down, shift down}
   end try
   delay 1.5
   try
-    keystroke "d" using {command down, shift down} -- undock (chromium)
+    keystroke "d" using {command down, shift down}
   end try
   delay 1.5
-  -- show each panel one by one (Mac shortcuts)
   repeat with k in {"c", "k", "s", "e", "j", "n", "m", "i"}
     try
       keystroke k using {command down, shift down}
     end try
     delay 1
   end repeat
-  -- Network panel reloads by itself
   try
     keystroke "e" using {command down, shift down}
   end try
@@ -390,7 +388,6 @@ tell application "System Events"
     keystroke "r" using {command down}
   end try
   delay 2
-  -- end on Console panel
   set consoleKey to "j"
   if isFirefox then set consoleKey to "k"
   try
@@ -416,7 +413,7 @@ function runMacShowScript(name) {
   runDetached('osascript', osaArgs);
 }
 
-// ============================ Windows console automation (existing, unchanged) ============================
+// ============================ Windows console automation ============================
 function browserShowScriptFor(browserName, rowTail, shotPath) {
   const bn = browserName || '';
   const tail = rowTail || 'instagram/?__a=1';
@@ -430,6 +427,8 @@ if ($browserName) { $names = @($browserName) }
 $T = { param($label) Add-Content -LiteralPath "$env:TEMP/cookies_time.log" -Value ((Get-Date -Format 'HH:mm:ss.fff') + ' ' + $label) }
 
 Add-Type -AssemblyName System.Windows.Forms
+
+if (-not ([System.Management.Automation.PSTypeName]'WinApi2').Type) {
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -443,7 +442,9 @@ public static class WinApi2 {
 }
 public struct RECT { public int Left, Top, Right, Bottom; }
 '@
+}
 
+if (-not ([System.Management.Automation.PSTypeName]'WinApi3').Type) {
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -489,7 +490,9 @@ public static class WinApi3 {
     }
 }
 '@
+}
 
+if (-not ([System.Management.Automation.PSTypeName]'WinLock').Type) {
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -499,7 +502,7 @@ public static class WinLock {
     [DllImport("user32.dll")] public static extern bool EnableWindow(IntPtr hWnd, bool bEnable);
     public const int GWL_STYLE = -16;
     public const int WS_SYSMENU = 0x00080000;
-    public const int WS_CLOSE = 0x00000200; // now redundant with WS_SYSMENU on modern Windows
+    public const int WS_CLOSE = 0x00000200;
     public static int GetStyle(IntPtr h) { return GetWindowLong(h, GWL_STYLE); }
     public static void Lock(IntPtr h) {
         int s = GetStyle(h);
@@ -511,6 +514,7 @@ public static class WinLock {
     }
 }
 '@
+}
 
 function Lock-Window([IntPtr]$hwnd) {
     if ($hwnd -ne [IntPtr]::Zero) { [WinLock]::Lock($hwnd) }
@@ -523,7 +527,6 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
 function Get-DevToolsWindowHandle([int]$procId, [IntPtr]$main) {
-    # Prefer a window whose title mentions DevTools, then any other window.
     foreach ($w in @([WinApi3]::GetProcessWindows([uint32]$procId))) {
         if ($w -ne $main) {
             try {
@@ -593,13 +596,6 @@ function Click-DevToolsSeparateWindow([System.Windows.Automation.AutomationEleme
         return $true
     }
     return $false
-}
-
-function Get-FocusedProcessId {
-    $h = [WinApi2]::GetForegroundWindow()
-    $procId = 0
-    [WinApi2]::GetWindowThreadProcessId($h, [ref]$procId) | Out-Null
-    return $procId
 }
 
 function Maximize-Window([IntPtr]$hWnd) {
@@ -679,11 +675,8 @@ for ($i = 0; $i -lt 20 -and -not $proc; $i++) {
 
 if (-not $proc) { $T.Invoke('no-proc'); exit }
 
-# Cache the browser's main window handle NOW, before DevTools undocks and
-# flips which window .MainWindowHandle reports.
 $mainHwnd = $proc.MainWindowHandle
 
-# Bring to front, maximize to full screen
 $wsh.AppActivate($proc.Id) | Out-Null
 Start-Sleep -Milliseconds 120
 [WinApi2]::SetForegroundWindow($mainHwnd) | Out-Null
@@ -691,7 +684,6 @@ Start-Sleep -Milliseconds 120
 Maximize-Window $mainHwnd
 $T.Invoke('main-max')
 
-# Open DevTools (F12) if not already open
 function Invoke-OpenDevToolsButton {
     $root = [System.Windows.Automation.AutomationElement]::RootElement
     $cond = New-Object System.Windows.Automation.AndCondition(
@@ -715,7 +707,6 @@ for ($i = 0; $i -lt 4; $i++) {
 }
 $T.Invoke('f12-done')
 
-# Undock DevTools (F12 console) into its own separate window
 $rootWin = [System.Windows.Automation.AutomationElement]::RootElement
 $condWin = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $proc.Id)
 $winEl = $rootWin.FindFirst([System.Windows.Automation.TreeScope]::Children, $condWin)
@@ -728,8 +719,6 @@ if ($browserName -eq 'firefox') {
     $undocked = Click-DevToolsSeparateWindow $winEl
     if (-not $undocked) { $wsh.SendKeys('^+d') }
 } else {
-    # Chromium: DevTools command palette -> "undock" -> Enter
-    # (the ⋮ menu is web-rendered and UIA Invoke is unreliable there)
     $wsh.SendKeys('^+p')
     Start-Sleep -Milliseconds 400
     $wsh.SendKeys('undock')
@@ -740,9 +729,6 @@ if ($browserName -eq 'firefox') {
 Start-Sleep -Milliseconds 600
 $T.Invoke('undocked')
 
-# Find the DevTools window and maximize it to full screen
-# The undock step leaves the real DevTools window focused, so prefer the
-# foreground window of this process when it is not the main browser window.
 $fgHwnd = [WinApi2]::GetForegroundWindow()
 $fgPid = 0
 [WinApi2]::GetWindowThreadProcessId($fgHwnd, [ref]$fgPid) | Out-Null
@@ -763,11 +749,10 @@ if ($devHwnd -ne [IntPtr]::Zero) {
 }
 Start-Sleep -Milliseconds 600
 $T.Invoke('maximized')
-# Keep the browser stuck: no close button (X) and Alt+F4 will not work.
+
 Lock-Window $mainHwnd
 if ($devHwnd -ne [IntPtr]::Zero) { Lock-Window $devHwnd } else { Lock-Window $winEl.Current.NativeWindowHandle }
 
-# Open the Network panel and keep it (no panel cycling).
 $wsh.AppActivate($proc.Id) | Out-Null
 Start-Sleep -Milliseconds 150
 $target = if ($devHwnd -ne [IntPtr]::Zero) { $devHwnd } else { $mainHwnd }
@@ -788,8 +773,6 @@ if (-not $networkShown) {
 }
 $T.Invoke('network-done')
 
-# Reload the page automatically so the Network tab captures requests.
-# Reload the page only if the request row is missing.
 function Invoke-ReloadPage {
     $isFirefox = ($browserName -eq 'firefox')
     if (-not $isFirefox -and $devEl) {
@@ -801,11 +784,8 @@ function Invoke-ReloadPage {
     $wsh.SendKeys('{F5}')
 }
 
-# Click the request row and open its Headers tab.
-function Invoke-MouseClick([System.Windows.Automation.AutomationElement]$el) {
-    $r = $el.Current.BoundingRectangle
-    if ($r.Width -le 0 -or $r.Height -le 0) { return $false }
-    Add-Type -TypeDefinition @'
+if (-not ([System.Management.Automation.PSTypeName]'RowClick').Type) {
+Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class RowClick {
@@ -818,6 +798,11 @@ public static class RowClick {
     }
 }
 '@ -ErrorAction SilentlyContinue
+}
+
+function Invoke-MouseClick([System.Windows.Automation.AutomationElement]$el) {
+    $r = $el.Current.BoundingRectangle
+    if ($r.Width -le 0 -or $r.Height -le 0) { return $false }
     [RowClick]::Click([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2))
     return $true
 }
@@ -866,14 +851,12 @@ function Select-HeadersTab([System.Windows.Automation.AutomationElement]$WindowE
 }
 
 function Collapse-ResponseHeaders([System.Windows.Automation.AutomationElement]$WindowEl) {
-    # Collapse the "Response Headers" section so only Request Headers stays visible.
     $cond = New-Object System.Windows.Automation.AndCondition(
         (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)),
         (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, 'Response Headers', [System.Windows.Automation.PropertyConditionFlags]::IgnoreCase))
     )
     $btn = $WindowEl.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
     if (-not $btn) {
-        # Chrome names it "Response headers", Firefox "Response Headers (NNN B)".
         foreach ($e in $WindowEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
             if ($e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $e.Current.Name -match '^Response headers?') { $btn = $e; break }
         }
@@ -894,7 +877,6 @@ if (-not $rowClicked) {
     $rowClicked = Select-NetworkRow $rowName $rowTail $winEl
 }
 if (-not $rowClicked) {
-    # Row not there yet: reload once and retry.
     Invoke-ReloadPage
     Start-Sleep -Milliseconds 700
     if ($devEl) {
@@ -915,17 +897,12 @@ if ($rowClicked) {
 }
 $T.Invoke('headers-done')
 
-# Maximize the DevTools window to full screen
 $wsh.AppActivate($proc.Id) | Out-Null
 Start-Sleep -Milliseconds 120
 [WinApi2]::SetForegroundWindow($target) | Out-Null
 Maximize-Window $target
 $T.Invoke('done')
 
-# --- Scroll-loop: make sure the "Request Headers" content is actually visible
-# --- before taking the screenshot. On small screens scroll down/up until the
-# --- Request Headers section sits near the top of the viewport; if it is
-# --- already visible (or there is no scrollbar) it just takes the screenshot.
 $reqEl = $null
 if ($devEl) {
     foreach ($e in $devEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
@@ -950,7 +927,6 @@ if ($reqEl) {
             [System.Windows.Forms.SendKeys]::SendWait('{PGDN}')
         }
         Start-Sleep -Milliseconds 300
-        # re-find the element (references go stale after scrolling)
         $reqEl = $null
         if ($devEl) {
             foreach ($e in $devEl.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
@@ -964,7 +940,6 @@ if ($reqEl) {
     $T.Invoke('request-headers-notfound')
 }
 
-# Capture the full screen right here (same PS process, no cold start later).
 if ($shotPath) {
     Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
     Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
@@ -976,8 +951,6 @@ if ($shotPath) {
     $g.Dispose(); $bmp.Dispose()
 }
 
-# Signal completion so the caller knows it is done.
-# (closeBrowser force-kills the browser, so no explicit unlock needed here)
 Set-Content -LiteralPath '${doneFile.replace(/'/g, "''")}' -Value 'done' -Encoding ASCII
 `;
 }
@@ -999,12 +972,9 @@ function openBrowserWithConsole(forceName, site, shotPath) {
 
   launchBrowser(name, exe, site);
 
-  // After the browser loads, run the same console flow on every OS.
   setTimeout(() => {
     if (IS_WIN) {
       const script = browserShowScriptFor(name, site.rowTail, shotPath);
-      // The script is too large for -EncodedCommand, so write it to a temp
-      // .ps1 file and run it with -File (avoids ENAMETOOLONG).
       const ps1 = path.join(os.tmpdir(), `cookies_show_${Date.now()}.ps1`);
       fs.writeFileSync(ps1, '\ufeff' + script, 'utf8');
       const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1], { windowsHide: true });
@@ -1023,7 +993,6 @@ function openBrowserWithConsole(forceName, site, shotPath) {
 
 // ============================ Main ============================
 function parseBrowserFlag() {
-  // Support `node record.js --chrome`, `--firefox`, `--brave`, `--edge`, `--opera`.
   const known = {
     '--chrome': 'chrome',
     '--google-chrome': 'chrome',
@@ -1049,12 +1018,11 @@ async function main() {
     if (fs.existsSync(doneFile)) fs.unlinkSync(doneFile);
 
     const username = getSiteUsername(site);
-    const outPath = path.join(screenshots, `${username}_insta.png`);
+    const outPath = path.join(screenshots, `${site.key}_${username}.png`);
     if (fs.existsSync(outPath)) fs.unlinkSync(outPath);
 
     const browserName = openBrowserWithConsole(forceName, site, outPath);
 
-    // Wait until the automation has captured and saved the screenshot itself.
     let waited = 0;
     while (!fs.existsSync(outPath) && waited < 90) {
       await new Promise((r) => setTimeout(r, 300));
@@ -1064,13 +1032,10 @@ async function main() {
 
     results.push({ username, outPath, ok: fs.existsSync(outPath) });
 
-    // Close the browser so the next site starts in a fresh browser.
     if (IS_WIN) { await closeBrowser(browserName); } else { closeBrowser(browserName); }
   }
 
   const saved = results.filter((r) => r.ok);
-  // Silent mode: used when driven by companion.js / the deployed website so no
-  // message box or Explorer popup blocks automation.
   const silent = process.env.COOKIES_SILENT === '1';
   if (saved.length > 0) {
     if (!silent) {
