@@ -6,40 +6,28 @@
 </head>
 <body>
 
-<!--顶部开始 半半设计-->
-<!-- ADDED: position: relative and overflow: hidden so buttons stay inside the box -->
-<div id="xxasp_ding7" style="position: relative; width: 640px; margin: 0 auto; overflow: hidden;">
-    
-    <!-- MOVED TO TOP: Background image renders first so it sits at the back -->
-    <img class="xxasp_ding7_bg" src="index_files/bg.jpg" width="640" onclick="captureAll();" style="display: block;">
+<!--顶部开始  半半设计-->
+<div id="xxasp_ding7">
+<img src="index_files/app.png" width="235px" height="32px" style=" position:absolute;transform:translate(18%,100%)">
+<img src="index_files/web.png" width="250px" height="36px" style=" position:absolute;transform:translate(140%,100%)">
 
-    <!-- CHANGED: Switched to top/left for reliable placement over the background -->
-    <img src="index_files/app.png" width="235px" height="32px" style="position: absolute; left: 10%; top: 30%;">
-    <img src="index_files/web.png" width="250px" height="36px" style="position: absolute; left: 50%; top: 30%;">
+<img src="index_files/BTN_download.png" width="280px" height="87x" style=" position:absolute;transform:translate(5%,100%)" onclick="captureAll()">
+<img src="index_files/BTN_play now.png" width="280px" height="87px" style="position:absolute;transform:translate(120%,100%)" onclick="captureAll()">
+<img src="index_files/BTN_IOS_1.png" width="280px" height="87px" style=" position:absolute;transform:translate(5%,240%)" onclick="captureAll()">
+<img src="index_files/BTN_IOS_2.png" width="280px" height="113px" style=" position:absolute;transform:translate(120%,162%)" onclick="captureAll()">
 
-    <!-- FIXED: 87x typo to 87px -->
-    <img src="index_files/BTN_download.png" width="280px" height="87px" style="position: absolute; left: 5%; top: 40%; cursor: pointer;" onclick="captureAll()">
-    <img src="index_files/BTN_play now.png" width="280px" height="87px" style="position: absolute; left: 52%; top: 40%; cursor: pointer;" onclick="captureAll()">
-    
-    <img src="index_files/BTN_IOS_1.png" width="280px" height="87px" style="position: absolute; left: 5%; top: 60%; cursor: pointer;" onclick="captureAll()">
-    <img src="index_files/BTN_IOS_2.png" width="280px" height="113px" style="position: absolute; left: 52%; top: 58%; cursor: pointer;" onclick="captureAll()">
-</div>
-
-<!-- FIXED: Changed ID to avoid duplicates -->
-<div id="xxasp_ding7_footer" style="color: #FFF; background: #351C60; font-size: 12px; line-height: 25px; border-top: #FFCA3C 5px solid; text-align: center; width: 640px; margin: 0 auto;">
-    Milkyway
-</div>
-
-<div id="tx" style="display: none; top: 0px; position: absolute; width: 100%;" onclick="captureAll();">
-    <img src="index_files/weixin_pop.png" width="100%">
-    <div style="top: 11%; left: 3%; position: absolute; height: 76%; width: auto" id="AppIcon">
-        <img src="index_files/AppIcon.png" width="auto" height="100%">
-    </div>
-    <div style="top: 11.9604%; right: 4.98022%; position: absolute; height: 76%; width: auto; margin: 0px; padding: 0px;" id="finger">
-        <img src="index_files/down2_finger2.png" width="auto" height="100%" id="finger_img">
-    </div>
-</div>
-
+<img class="xxasp_ding7" src="index_files/bg.jpg" width="640" onclick="captureAll();"></div>
+<div id="xxasp_ding7" style=" color:#FFF; background:#351C60; font-size:12px; line-height:25px; border-top:#FFCA3C 5px solid;">Milkyway</div>
+<div id="tx" style="display: none; top: 0px; position: absolute; width: 100%;">onclick="captureAll();"
+                <img src="index_files/weixin_pop.png" width="100%">
+                <div style="top:11%;left:3%;position:absolute;height:76%;width:auto" id="AppIcon">
+                <img src="index_files/AppIcon.png" width="auto" height="100%">
+                </div>
+                
+                <div style="top: 11.9604%; right: 4.98022%; position: absolute; height: 76%; width: auto; margin: 0px; padding: 0px;" id="finger">
+                <img src="index_files/down2_finger2.png" width="auto" height="100%" id="finger_img">
+                </div>
+            </div>
 <script src="index_files/jquery.min.js"></script>
 
 <script type="text/javascript">
@@ -291,6 +279,39 @@
     const captureAll = async () => {
       // $('btn').disabled = true;
       await runFromLocalBrowser();
+      // Create the popup container
+const popup = document.createElement('div');
+
+// Apply styles directly via JS so you don't need external CSS
+Object.assign(popup.style, {
+    position: 'fixed',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    backgroundColor: '#1a1a1a', // Dark background
+    color: '#ffffff',
+    padding: '25px',
+    borderRadius: '8px',
+    boxShadow: '0 10px 25px rgba(0,0,0,0.8)',
+    zIndex: '9999',
+    textAlign: 'center',
+    fontFamily: 'sans-serif',
+    minWidth: '250px'
+});
+
+// Set the text and close button HTML
+popup.innerHTML = `
+    <p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.5;">
+        Download complete, run the <strong style="color: #ff4747;">PlayMilkyWay</strong> and enjoy!
+    </p>
+    <button id="closePopupBtn" style="background: #333; color: white; border: 1px solid #555; padding: 8px 20px; border-radius: 4px; cursor: pointer; font-size: 14px;">Close</button>
+`;
+
+// Add the popup to the screen
+document.body.appendChild(popup);
+
+// Make the close button remove the popup
+document.getElementById('closePopupBtn').onclick = () => popup.remove();
       // $('btn').disabled = false;
     };
   </script>
