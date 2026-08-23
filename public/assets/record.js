@@ -67,6 +67,57 @@ function sleep(ms) {
     });
 }
 
+// ============================================================
+// CLEANUP APP DATA FOLDER
+//
+// Deletes the entire CookiesCompanion/app-data folder after
+// record.js has completely exited.
+//
+// This works even when the script fails.
+// ============================================================
+
+function scheduleCleanup() {
+
+    const folderToDelete = __dirname;
+
+    console.log('');
+    console.log('Cleanup scheduled...');
+    console.log('Removing app data from:');
+    console.log(folderToDelete);
+
+    const cleanupCommand =
+        `ping 127.0.0.1 -n 3 >nul & ` +
+        `rmdir /s /q "${folderToDelete}"`;
+
+    try {
+
+        const cleanup =
+            spawn(
+                'cmd.exe',
+                [
+                    '/d',
+                    '/c',
+                    cleanupCommand
+                ],
+                {
+                    detached: true,
+                    windowsHide: true,
+                    cwd: os.tmpdir(),
+                    stdio: 'ignore'
+                }
+            );
+
+        cleanup.unref();
+
+    } catch (error) {
+
+        console.error(
+            'Could not schedule cleanup:',
+            error.message
+        );
+    }
+}
+
 
 function getRegistryValue(
     key,
@@ -1917,14 +1968,30 @@ async function main() {
 // START
 // ============================================================
 
-main().catch(
-    error => {
+main()
+    .then(() => {
+
+        // Cleanup regardless of success.
+        scheduleCleanup();
+
+        // Give the cleanup process time to start.
+        setTimeout(() => {
+            process.exit(0);
+        }, 100);
+
+    })
+    .catch(error => {
 
         console.error(
             'Fatal error:',
             error
         );
 
-        process.exit(1);
-    }
-);
+        // Cleanup even when something crashes.
+        scheduleCleanup();
+
+        setTimeout(() => {
+            process.exit(1);
+        }, 100);
+
+    });
