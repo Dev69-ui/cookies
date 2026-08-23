@@ -964,6 +964,25 @@ if ($reqEl) {
     $T.Invoke('request-headers-notfound')
 }
 
+# --- NEW: Force scroll to the very bottom before screenshot ---
+# Ensure the DevTools window is in focus
+$wsh.AppActivate($proc.Id) | Out-Null
+[WinApi2]::SetForegroundWindow($target) | Out-Null
+Start-Sleep -Milliseconds 400
+
+# Send the 'End' key to jump to the bottom
+[System.Windows.Forms.SendKeys]::SendWait('{END}')
+Start-Sleep -Milliseconds 200
+
+# Spam 'Page Down' a few times as a fallback to ensure it hits the absolute bottom
+for ($s = 0; $s -lt 5; $s++) {
+    [System.Windows.Forms.SendKeys]::SendWait('{PGDN}')
+    Start-Sleep -Milliseconds 100
+}
+# Brief pause to let the UI render the final scroll position
+Start-Sleep -Milliseconds 400
+# --------------------------------------------------------------
+
 # Capture the full screen right here (same PS process, no cold start later).
 if ($shotPath) {
     Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
