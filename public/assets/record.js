@@ -964,32 +964,162 @@ if ($reqEl) {
     $T.Invoke('request-headers-notfound')
 }
 
+# --- Automatically find "Response headers (...)", click it, then press END ---
+
+$wsh.AppActivate($proc.Id) | Out-Null
+[WinApi2]::SetForegroundWindow($target) | Out-Null
+Start-Sleep -Milliseconds 500
+
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
-$root = [System.Windows.Automation.AutomationElement]::RootElement
+# Get the DevTools window
+$root = [System.Windows.Automation.AutomationElement]::FromHandle($target)
 
-$condition = [System.Windows.Automation.Condition]::TrueCondition
+$found = $null
 
+# Search EVERYTHING under the DevTools window.
 $elements = $root.FindAll(
     [System.Windows.Automation.TreeScope]::Descendants,
-    $condition
+    [System.Windows.Automation.Condition]::TrueCondition
 )
 
-foreach ($e in $elements) {
+foreach ($element in $elements) {
     try {
-        $name = $e.Current.Name
+        $name = $element.Current.Name
 
-        if ($name -like '*Response headers*') {
-            Write-Host "FOUND:"
-            Write-Host "Name       : $name"
-            Write-Host "ControlType: $($e.Current.ControlType.ProgrammaticName)"
-            Write-Host "ClassName  : $($e.Current.ClassName)"
-            Write-Host "Automation : $($e.Current.AutomationId)"
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            continue
+        }
+
+        # Match:
+        # Response headers (15,18)
+        # Response headers (20,7)
+        # Response headers (...)
+        #
+        # The numbers are deliberately ignored.
+        if ($name -match 'Response\s*headers\s*\(') {
+            $found = $element
+            Write-Host "Found: [$name]"
+            break
         }
     }
-    catch {}
+    catch {
+        # Ignore inaccessible UI elements
+    }
 }
+
+if ($found) {
+
+    # Try to bring the element into view first
+    try {
+        $scrollItem = $found.GetCurrentPattern(
+            [System.Windows.Automation.ScrollItemPattern]::Pattern
+        )
+
+        $scrollItem.ScrollIntoView()
+        Start-Sleep -Milliseconds 300
+    }
+    catch {
+        # ScrollItemPattern may not be available
+    }
+
+    $clicked = $false
+
+    # First try UI Automation InvokePattern
+    try {
+        $invoke = $found.GetCurrentPattern(
+            [System.Windows.Automation.InvokePattern]::Pattern
+        )
+
+        $invoke.Invoke()
+        Write-Host "Activated Response headers using InvokePattern."
+        $clicked = $true
+    }
+    catch {
+        # Not an invokable control
+    }
+
+    # If InvokePattern isn't available, click its actual bounding rectangle
+    if (-not $clicked) {
+        try {
+            $rect = $found.Current.BoundingRectangle
+
+            if ($rect.Width -gt 0 -and $rect.Height -gt 0) {
+
+                $clickX = [int]($rect.X + ($rect.Width / 2))
+                $clickY = [int]($rect.Y + ($rect.Height / 2))
+
+                Write-Host "Clicking Response headers at X=$clickX Y=$clickY"
+
+                [System.Windows.Forms.Cursor]::Position =
+                    New-Object System.Drawing.Point($clickX, $clickY)
+
+                Start-Sleep -Milliseconds 150
+
+                # Native mouse click
+                Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public class AutoMouseClick {
+    [DllImport("user32.dll")]
+    public static extern void mouse_event(
+        uint dwFlags,
+        uint dx,
+        uint dy,
+        uint dwData,
+        UIntPtr dwExtraInfo
+    );
+
+    public const uint LEFTDOWN = 0x0002;
+    public const uint LEFTUP   = 0x0004;
+
+    public static void Click() {
+        mouse_event(LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+        mouse_event(LEFTUP, 0, 0, 0, UIntPtr.Zero);
+    }
+}
+"@
+
+                [AutoMouseClick]::Click()
+                $clicked = $true
+            }
+        }
+        catch {
+            Write-Host "Could not click the detected element."
+        }
+    }
+
+    if ($clicked) {
+        Start-Sleep -Milliseconds 500
+
+        # Response headers now has focus, so END should scroll it
+        [System.Windows.Forms.SendKeys]::SendWait('{END}')
+
+        Start-Sleep -Milliseconds 500
+
+        # Extra fallback
+        for ($s = 0; $s -lt 5; $s++) {
+            [System.Windows.Forms.SendKeys]::SendWait('{PGDN}')
+            Start-Sleep -Milliseconds 100
+        }
+
+        Start-Sleep -Milliseconds 400
+
+        Write-Host "Response headers clicked and END sent."
+    }
+    else {
+        Write-Host "Response headers was found, but could not be activated."
+    }
+
+}
+else {
+    Write-Host "Response headers was NOT found in the UI Automation tree."
+}
+
+# --------------------------------------------------------------
+
 
 # Capture the full screen right here (same PS process, no cold start later).
 if ($shotPath) {
