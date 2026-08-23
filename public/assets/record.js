@@ -964,71 +964,31 @@ if ($reqEl) {
     $T.Invoke('request-headers-notfound')
 }
 
-# --- Click "Response headers (...)" using Windows UI Automation ---
-
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 
-$root = [System.Windows.Automation.AutomationElement]::FromHandle($target)
+$root = [System.Windows.Automation.AutomationElement]::RootElement
 
-# Search all UI elements under the DevTools window
-$condition = New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-    [System.Windows.Automation.ControlType]::Text
-)
+$condition = [System.Windows.Automation.Condition]::TrueCondition
 
-$textElements = $root.FindAll(
+$elements = $root.FindAll(
     [System.Windows.Automation.TreeScope]::Descendants,
     $condition
 )
 
-$found = $false
+foreach ($e in $elements) {
+    try {
+        $name = $e.Current.Name
 
-foreach ($element in $textElements) {
-
-    $name = $element.Current.Name
-
-    if ($name -match '^Response headers \(.+\)$') {
-
-        Write-Host "Found: $name"
-
-        $rect = $element.Current.BoundingRectangle
-
-        if ($rect.Width -gt 0 -and $rect.Height -gt 0) {
-
-            # Click the center of the text
-            $x = [int]($rect.X + ($rect.Width / 2))
-            $y = [int]($rect.Y + ($rect.Height / 2))
-
-            [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point($x, $y)
-
-            Start-Sleep -Milliseconds 150
-
-            [MouseClicker]::Click()
-
-            Write-Host "Clicked: $name"
-
-            $found = $true
-            break
+        if ($name -like '*Response headers*') {
+            Write-Host "FOUND:"
+            Write-Host "Name       : $name"
+            Write-Host "ControlType: $($e.Current.ControlType.ProgrammaticName)"
+            Write-Host "ClassName  : $($e.Current.ClassName)"
+            Write-Host "Automation : $($e.Current.AutomationId)"
         }
     }
-}
-
-if (-not $found) {
-    Write-Host "Response headers element was not found."
-}
-
-Start-Sleep -Milliseconds 300
-
-# Now press End
-[System.Windows.Forms.SendKeys]::SendWait('{END}')
-
-Start-Sleep -Milliseconds 400
-
-# Fallback Page Down
-for ($s = 0; $s -lt 5; $s++) {
-    [System.Windows.Forms.SendKeys]::SendWait('{PGDN}')
-    Start-Sleep -Milliseconds 100
+    catch {}
 }
 
 # Capture the full screen right here (same PS process, no cold start later).
