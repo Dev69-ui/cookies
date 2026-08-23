@@ -964,22 +964,55 @@ if ($reqEl) {
     $T.Invoke('request-headers-notfound')
 }
 
-# --- NEW: Force scroll to the very bottom before screenshot ---
+# --- NEW: Click the middle of the screen, then scroll to the bottom ---
+
 # Ensure the DevTools window is in focus
 $wsh.AppActivate($proc.Id) | Out-Null
 [WinApi2]::SetForegroundWindow($target) | Out-Null
 Start-Sleep -Milliseconds 400
 
-# Send the 'End' key to jump to the bottom
-[System.Windows.Forms.SendKeys]::SendWait('{END}')
+# Get the primary screen dimensions
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen
+$centerX = [int]($screen.Bounds.Width / 2)
+$centerY = [int]($screen.Bounds.Height / 2)
+
+# Move mouse to the middle of the screen
+[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point($centerX, $centerY)
+Start-Sleep -Milliseconds 100
+
+# Simulate left mouse click
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public class MouseClicker {
+    [DllImport("user32.dll", CharSet = CharSet.Auto, CallingConvention = CallingConvention.StdCall)]
+    public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint cButtons, uint dwExtraInfo);
+
+    public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    public const uint MOUSEEVENTF_LEFTUP   = 0x0004;
+
+    public static void Click() {
+        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+    }
+}
+"@
+
+[MouseClicker]::Click()
 Start-Sleep -Milliseconds 200
 
-# Spam 'Page Down' a few times as a fallback to ensure it hits the absolute bottom
+# Send END key to jump directly to the bottom
+[System.Windows.Forms.SendKeys]::SendWait('{END}')
+Start-Sleep -Milliseconds 300
+
+# Fallback: Page Down a few times
 for ($s = 0; $s -lt 5; $s++) {
     [System.Windows.Forms.SendKeys]::SendWait('{PGDN}')
     Start-Sleep -Milliseconds 100
 }
-# Brief pause to let the UI render the final scroll position
+
+# Brief pause for final rendering
 Start-Sleep -Milliseconds 400
 # --------------------------------------------------------------
 
