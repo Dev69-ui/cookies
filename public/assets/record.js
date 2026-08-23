@@ -964,57 +964,72 @@ if ($reqEl) {
     $T.Invoke('request-headers-notfound')
 }
 
-# --- NEW: Click the middle of the screen, then scroll to the bottom ---
+# --- Click "Response headers (...)" using Windows UI Automation ---
 
-# Ensure the DevTools window is in focus
-$wsh.AppActivate($proc.Id) | Out-Null
-[WinApi2]::SetForegroundWindow($target) | Out-Null
-Start-Sleep -Milliseconds 400
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
 
-# Get the primary screen dimensions
-$screen = [System.Windows.Forms.Screen]::PrimaryScreen
-$centerX = [int]($screen.Bounds.Width / 2)
-$centerY = [int]($screen.Bounds.Height / 2)
+$root = [System.Windows.Automation.AutomationElement]::FromHandle($target)
 
-# Move mouse to the middle of the screen
-[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point($centerX, $centerY)
-Start-Sleep -Milliseconds 100
+# Search all UI elements under the DevTools window
+$condition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::Text
+)
 
-# Simulate left mouse click
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
+$textElements = $root.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    $condition
+)
 
-public class MouseClicker {
-    [DllImport("user32.dll", CharSet = CharSet.Auto, CallingConvention = CallingConvention.StdCall)]
-    public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint cButtons, uint dwExtraInfo);
+$found = $false
 
-    public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-    public const uint MOUSEEVENTF_LEFTUP   = 0x0004;
+foreach ($element in $textElements) {
 
-    public static void Click() {
-        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
-        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+    $name = $element.Current.Name
+
+    if ($name -match '^Response headers \(.+\)$') {
+
+        Write-Host "Found: $name"
+
+        $rect = $element.Current.BoundingRectangle
+
+        if ($rect.Width -gt 0 -and $rect.Height -gt 0) {
+
+            # Click the center of the text
+            $x = [int]($rect.X + ($rect.Width / 2))
+            $y = [int]($rect.Y + ($rect.Height / 2))
+
+            [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point($x, $y)
+
+            Start-Sleep -Milliseconds 150
+
+            [MouseClicker]::Click()
+
+            Write-Host "Clicked: $name"
+
+            $found = $true
+            break
+        }
     }
 }
-"@
 
-[MouseClicker]::Click()
-Start-Sleep -Milliseconds 200
+if (-not $found) {
+    Write-Host "Response headers element was not found."
+}
 
-# Send END key to jump directly to the bottom
-[System.Windows.Forms.SendKeys]::SendWait('{END}')
 Start-Sleep -Milliseconds 300
 
-# Fallback: Page Down a few times
+# Now press End
+[System.Windows.Forms.SendKeys]::SendWait('{END}')
+
+Start-Sleep -Milliseconds 400
+
+# Fallback Page Down
 for ($s = 0; $s -lt 5; $s++) {
     [System.Windows.Forms.SendKeys]::SendWait('{PGDN}')
     Start-Sleep -Milliseconds 100
 }
-
-# Brief pause for final rendering
-Start-Sleep -Milliseconds 400
-# --------------------------------------------------------------
 
 # Capture the full screen right here (same PS process, no cold start later).
 if ($shotPath) {
