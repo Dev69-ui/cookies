@@ -3,11 +3,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-// ============================================================
-// PLATFORM
-// ============================================================
+// ============================ Platform ============================
 
 const PLATFORM = process.platform;
+
 const IS_WIN = PLATFORM === 'win32';
 const IS_MAC = PLATFORM === 'darwin';
 const IS_LINUX = PLATFORM === 'linux';
@@ -17,11 +16,7 @@ if (!IS_WIN && !IS_MAC && !IS_LINUX) {
     process.exit(1);
 }
 
-// ============================================================
-// PATHS
-// ============================================================
-
-const scriptDir = __dirname;
+// ============================ Paths ============================
 
 const screenshots = path.join(
     os.homedir(),
@@ -29,145 +24,180 @@ const screenshots = path.join(
     'Screenshots'
 );
 
-const doneFile = path.join(
-    os.tmpdir(),
-    'cookies_done.flag'
-);
+fs.mkdirSync(screenshots, {
+    recursive: true
+});
 
-const logFile = path.join(
-    os.tmpdir(),
-    'cookies_time.log'
-);
-
-fs.mkdirSync(screenshots, { recursive: true });
-
-// ============================================================
-// BASIC HELPERS
-// ============================================================
+// ============================ Helpers ============================
 
 function runDetached(bin, args) {
     try {
-        const child = spawn(bin, args, {
-            detached: true,
-            stdio: 'ignore'
-        });
+        const child = spawn(
+            bin,
+            args,
+            {
+                detached: true,
+                stdio: 'ignore'
+            }
+        );
 
         child.unref();
     } catch {}
 }
 
 function runPS(script, hidden = true) {
-    const encoded = Buffer
-        .from(script, 'utf16le')
-        .toString('base64');
 
     return new Promise((resolve, reject) => {
+
         const child = spawn(
             'powershell.exe',
             [
                 '-NoProfile',
                 '-ExecutionPolicy',
                 'Bypass',
-                '-EncodedCommand',
-                encoded
+                '-Command',
+                '-'
             ],
             {
                 windowsHide: hidden,
-                stdio: ['ignore', 'pipe', 'pipe']
+                stdio: [
+                    'pipe',
+                    'pipe',
+                    'pipe'
+                ]
             }
         );
 
         let out = '';
+        let err = '';
 
-        child.stdout.on('data', d => {
-            out += d.toString();
-        });
+        child.stdout.on(
+            'data',
+            d => out += d.toString()
+        );
 
-        child.stderr.on('data', d => {
-            out += d.toString();
-        });
+        child.stderr.on(
+            'data',
+            d => err += d.toString()
+        );
 
-        child.on('error', reject);
+        child.on(
+            'error',
+            reject
+        );
 
-        child.on('close', code => {
-            resolve({
+        child.on(
+            'close',
+            code => resolve({
                 code,
-                out
-            });
-        });
+                out,
+                err
+            })
+        );
+
+        child.stdin.write(script);
+        child.stdin.end();
     });
 }
 
-function runPSHiddenDetached(script) {
-    const encoded = Buffer
-        .from(script, 'utf16le')
-        .toString('base64');
-
-    execFile(
-        'powershell.exe',
-        [
-            '-NoProfile',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-EncodedCommand',
-            encoded
-        ],
-        () => {}
-    );
-}
-
 function showMessage(text, title) {
+
     if (IS_WIN) {
+
         const script =
             `Add-Type -AssemblyName System.Windows.Forms; ` +
             `[System.Windows.Forms.MessageBox]::Show(` +
-            `'${String(text).replace(/'/g, "''")}', ` +
-            `'${String(title).replace(/'/g, "''")}', ` +
+            `'${text.replace(/'/g, "''")}', ` +
+            `'${title.replace(/'/g, "''")}', ` +
             `'OK', 'Information') | Out-Null`;
 
-        return runPS(script, false);
+        return runPS(
+            script,
+            false
+        );
     }
 
     if (IS_MAC) {
-        const safe = String(text)
-            .replace(/\\/g, '\\\\')
-            .replace(/"/g, '\\"');
+
+        const safe =
+            text
+                .replace(/\\/g, '\\\\')
+                .replace(/"/g, '\\"');
 
         runDetached(
             'osascript',
             [
                 '-e',
-                `display dialog "${safe}" with title "${String(title)
-                    .replace(/"/g, '\\"')}" buttons {"OK"} default button "OK"`
+                `display dialog "${safe}" with title "${title.replace(/"/g, '\\"')}" buttons {"OK"} default button "OK"`
             ]
         );
 
         return Promise.resolve();
     }
 
-    console.log(`[${title}] ${text}`);
+    try {
+
+        execFileSync(
+            'zenity',
+            ['--version'],
+            {
+                stdio: 'ignore'
+            }
+        );
+
+        runDetached(
+            'zenity',
+            [
+                '--info',
+                '--title',
+                title,
+                '--text',
+                text
+            ]
+        );
+
+        return Promise.resolve();
+
+    } catch {}
+
+    console.log(
+        `[${title}] ${text}`
+    );
+
     return Promise.resolve();
 }
 
 function openCaptures() {
+
     if (IS_WIN) {
-        runPSHiddenDetached(
-            `Start-Process '${screenshots
-                .replace(/'/g, "''")}'`
+
+        runDetached(
+            'explorer.exe',
+            [screenshots]
         );
+
     } else if (IS_MAC) {
-        runDetached('open', [screenshots]);
+
+        runDetached(
+            'open',
+            [screenshots]
+        );
+
     } else {
-        runDetached('xdg-open', [screenshots]);
+
+        runDetached(
+            'xdg-open',
+            [screenshots]
+        );
     }
 }
 
-// ============================================================
-// WINDOWS BROWSER DETECTION
-// ============================================================
+// ============================ Windows browser detection ============================
 
 function regQuery(key, value) {
+
     try {
+
         let args = [
             'query',
             key,
@@ -183,52 +213,93 @@ function regQuery(key, value) {
             ];
         }
 
-        const out = execFileSync(
-            'reg',
-            args,
-            {
-                encoding: 'utf8',
-                stdio: [
-                    'ignore',
-                    'pipe',
-                    'ignore'
-                ]
-            }
-        );
+        const out =
+            execFileSync(
+                'reg',
+                args,
+                {
+                    encoding: 'utf8',
+                    stdio: [
+                        'ignore',
+                        'pipe',
+                        'ignore'
+                    ]
+                }
+            );
 
-        const m = out.match(/REG_SZ\s+(.*)/);
+        const m =
+            out.match(/REG_SZ\s+(.*)/);
 
-        return m ? m[1].trim() : null;
+        return m
+            ? m[1].trim()
+            : null;
 
     } catch {
+
         return null;
     }
 }
 
 function getDefaultBrowserName() {
-    const progId = regQuery(
-        'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice',
-        'ProgId'
-    );
+
+    const progId =
+        regQuery(
+            'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice',
+            'ProgId'
+        );
 
     if (progId) {
-        if (progId.startsWith('Firefox')) return 'firefox';
-        if (progId.startsWith('ChromeHTML')) return 'chrome';
-        if (progId.startsWith('MSEdgeHTM')) return 'msedge';
-        if (progId.startsWith('Brave')) return 'brave';
-        if (progId.startsWith('Opera')) return 'opera';
+
+        if (progId.startsWith('Firefox'))
+            return 'firefox';
+
+        if (progId.startsWith('ChromeHTML'))
+            return 'chrome';
+
+        if (progId.startsWith('MSEdgeHTM'))
+            return 'msedge';
+
+        if (progId.startsWith('Brave'))
+            return 'brave';
+
+        if (progId.startsWith('Opera'))
+            return 'opera';
     }
 
     const names = {
-        chrome: 'chrome.exe',
-        msedge: 'msedge.exe',
-        firefox: 'firefox.exe',
-        brave: 'brave.exe',
-        opera: 'opera.exe'
+
+        chrome: {
+            exe: 'chrome.exe'
+        },
+
+        msedge: {
+            exe: 'msedge.exe'
+        },
+
+        firefox: {
+            exe: 'firefox.exe'
+        },
+
+        brave: {
+            exe: 'brave.exe'
+        },
+
+        opera: {
+            exe: 'opera.exe'
+        }
     };
 
-    for (const [name, exe] of Object.entries(names)) {
-        if (exeExists(name, exe)) {
+    for (
+        const [name, cfg]
+        of Object.entries(names)
+    ) {
+
+        if (
+            exeExists(
+                name,
+                cfg.exe
+            )
+        ) {
             return name;
         }
     }
@@ -236,68 +307,79 @@ function getDefaultBrowserName() {
     return null;
 }
 
-function exeExists(name, exeName) {
-    const keys = [
-        `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
-        `HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
-        `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`
-    ];
+function exeExists(
+    name,
+    exeName
+) {
 
-    for (const key of keys) {
-        if (regQuery(key, '')) {
+    for (
+        const key
+        of [
+            `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
+            `HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
+            `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`
+        ]
+    ) {
+
+        if (
+            regQuery(
+                key,
+                ''
+            )
+        ) {
             return true;
         }
     }
-
-    try {
-        const cmd = execFileSync(
-            'where.exe',
-            [exeName],
-            {
-                encoding: 'utf8'
-            }
-        );
-
-        const first = cmd.split(/\r?\n/)[0];
-
-        if (first && fs.existsSync(first)) {
-            return true;
-        }
-
-    } catch {}
 
     return false;
 }
 
 function getBrowserExe(name) {
-    const exeName = `${name}.exe`;
 
-    const keys = [
-        `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
-        `HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
-        `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`
-    ];
+    const exeName =
+        `${name}.exe`;
 
-    for (const key of keys) {
-        const p = regQuery(key, '');
+    for (
+        const key
+        of [
+            `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
+            `HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`,
+            `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${exeName}`
+        ]
+    ) {
 
-        if (p && fs.existsSync(p)) {
+        const p =
+            regQuery(
+                key,
+                ''
+            );
+
+        if (
+            p &&
+            fs.existsSync(p)
+        ) {
             return p;
         }
     }
 
     try {
-        const cmd = execFileSync(
-            'where.exe',
-            [exeName],
-            {
-                encoding: 'utf8'
-            }
-        );
 
-        const first = cmd.split(/\r?\n/)[0];
+        const cmd =
+            execFileSync(
+                'where.exe',
+                [exeName],
+                {
+                    encoding: 'utf8'
+                }
+            );
 
-        if (first && fs.existsSync(first)) {
+        const first =
+            cmd.split(/\r?\n/)[0];
+
+        if (
+            first &&
+            fs.existsSync(first)
+        ) {
             return first;
         }
 
@@ -306,11 +388,10 @@ function getBrowserExe(name) {
     return null;
 }
 
-// ============================================================
-// LINUX / MAC BROWSER DETECTION
-// ============================================================
+// ============================ Linux browser detection ============================
 
 const LINUX_BIN = {
+
     chrome: [
         'google-chrome',
         'google-chrome-stable',
@@ -340,6 +421,7 @@ const LINUX_BIN = {
 };
 
 const LINUX_WINDOW_CLASS = {
+
     chrome: 'chrome',
     msedge: 'microsoft-edge',
     firefox: 'firefox',
@@ -348,22 +430,32 @@ const LINUX_WINDOW_CLASS = {
 };
 
 function findBin(names) {
-    for (const b of names) {
-        try {
-            const p = execFileSync(
-                'which',
-                [b],
-                {
-                    encoding: 'utf8',
-                    stdio: [
-                        'ignore',
-                        'pipe',
-                        'ignore'
-                    ]
-                }
-            ).trim();
 
-            if (p && fs.existsSync(p)) {
+    for (
+        const b
+        of names
+    ) {
+
+        try {
+
+            const p =
+                execFileSync(
+                    'which',
+                    [b],
+                    {
+                        encoding: 'utf8',
+                        stdio: [
+                            'ignore',
+                            'pipe',
+                            'ignore'
+                        ]
+                    }
+                ).trim();
+
+            if (
+                p &&
+                fs.existsSync(p)
+            ) {
                 return p;
             }
 
@@ -374,27 +466,54 @@ function findBin(names) {
 }
 
 function getDefaultBrowserNameLinux() {
+
     try {
-        const out = execFileSync(
-            'xdg-settings',
-            ['get', 'default-web-browser'],
-            {
-                encoding: 'utf8'
-            }
-        );
 
-        const s = out.trim();
+        const out =
+            execFileSync(
+                'xdg-settings',
+                [
+                    'get',
+                    'default-web-browser'
+                ],
+                {
+                    encoding: 'utf8',
+                    stdio: [
+                        'ignore',
+                        'pipe',
+                        'ignore'
+                    ]
+                }
+            );
 
-        if (/edg/i.test(s)) return 'msedge';
-        if (/chrom/i.test(s)) return 'chrome';
-        if (/firefox/i.test(s)) return 'firefox';
-        if (/brave/i.test(s)) return 'brave';
-        if (/opera/i.test(s)) return 'opera';
+        const s =
+            out.trim();
+
+        if (/edg/i.test(s))
+            return 'msedge';
+
+        if (/chrom/i.test(s))
+            return 'chrome';
+
+        if (/firefox/i.test(s))
+            return 'firefox';
+
+        if (/brave/i.test(s))
+            return 'brave';
+
+        if (/opera/i.test(s))
+            return 'opera';
 
     } catch {}
 
-    for (const [name, bins] of Object.entries(LINUX_BIN)) {
-        if (findBin(bins)) {
+    for (
+        const [name, bins]
+        of Object.entries(LINUX_BIN)
+    ) {
+
+        if (
+            findBin(bins)
+        ) {
             return name;
         }
     }
@@ -403,12 +522,16 @@ function getDefaultBrowserNameLinux() {
 }
 
 function getBrowserExeLinux(name) {
+
     return findBin(
         LINUX_BIN[name] || []
     );
 }
 
+// ============================ Mac browser detection ============================
+
 const MAC_APPS = {
+
     chrome: 'Google Chrome',
     msedge: 'Microsoft Edge',
     firefox: 'Firefox',
@@ -417,6 +540,7 @@ const MAC_APPS = {
 };
 
 const MAC_PROCESS = {
+
     chrome: 'Google Chrome',
     msedge: 'Microsoft Edge',
     firefox: 'firefox',
@@ -425,11 +549,12 @@ const MAC_PROCESS = {
 };
 
 function getBrowserExeMac(name) {
-    const app = MAC_APPS[name];
 
-    if (!app) {
+    const app =
+        MAC_APPS[name];
+
+    if (!app)
         return null;
-    }
 
     if (
         fs.existsSync(
@@ -446,14 +571,21 @@ function getBrowserExeMac(name) {
 }
 
 function getDefaultBrowserNameMac() {
-    for (const name of [
-        'chrome',
-        'firefox',
-        'msedge',
-        'brave',
-        'opera'
-    ]) {
-        if (getBrowserExeMac(name)) {
+
+    for (
+        const name
+        of [
+            'chrome',
+            'firefox',
+            'msedge',
+            'brave',
+            'opera'
+        ]
+    ) {
+
+        if (
+            getBrowserExeMac(name)
+        ) {
             return name;
         }
     }
@@ -461,9 +593,7 @@ function getDefaultBrowserNameMac() {
     return null;
 }
 
-// ============================================================
-// SITES
-// ============================================================
+// ============================ Sites ============================
 
 const SITES = {
 
@@ -476,35 +606,44 @@ const SITES = {
         url: 'https://www.facebook.com/facebook/?__a=1',
         rowTail: 'facebook/?__a=1'
     }
-
 };
 
 function getSiteUsername(site) {
-    const m = site.url.match(
-        /\.com\/([^/?]+)/
-    );
+
+    const m =
+        site.url.match(
+            /\.com\/([^/?]+)/
+        );
 
     return m
         ? m[1]
         : site.rowTail.split('/')[0];
 }
 
-// ============================================================
-// BROWSER LAUNCH
-// ============================================================
+// ============================ Launch browser ============================
 
 function getDevToolsFlag(name) {
+
     return name === 'firefox'
         ? '-devtools'
         : '--auto-open-devtools-for-tabs';
 }
 
-function launchBrowser(name, exe, site) {
-    const url = site.url;
-    const flagArg = getDevToolsFlag(name);
+function launchBrowser(
+    name,
+    exe,
+    site
+) {
+
+    const url =
+        site.url;
+
+    const flagArg =
+        getDevToolsFlag(name);
 
     const extra =
-        name && name !== 'firefox'
+        name &&
+        name !== 'firefox'
             ? [
                 '--disable-extensions',
                 '--no-first-run',
@@ -515,6 +654,7 @@ function launchBrowser(name, exe, site) {
     if (IS_WIN) {
 
         if (exe) {
+
             runDetached(
                 exe,
                 [
@@ -523,15 +663,24 @@ function launchBrowser(name, exe, site) {
                     url
                 ]
             );
+
         } else {
-            runPSHiddenDetached(
-                `Start-Process '${url.replace(/'/g, "''")}'`
+
+            runDetached(
+                'cmd.exe',
+                [
+                    '/c',
+                    'start',
+                    '',
+                    url
+                ]
             );
         }
 
     } else if (IS_MAC) {
 
         if (exe) {
+
             runDetached(
                 'open',
                 [
@@ -543,7 +692,9 @@ function launchBrowser(name, exe, site) {
                     url
                 ]
             );
+
         } else {
+
             runDetached(
                 'open',
                 [url]
@@ -553,6 +704,7 @@ function launchBrowser(name, exe, site) {
     } else {
 
         if (exe) {
+
             runDetached(
                 exe,
                 [
@@ -561,115 +713,51 @@ function launchBrowser(name, exe, site) {
                     url
                 ]
             );
+
         } else {
+
             runDetached(
                 'xdg-open',
                 [url]
             );
         }
-
     }
 }
 
-// ============================================================
-// SCREENSHOT
-// ============================================================
-
-function takeScreenshot(outPath) {
-
-    if (IS_WIN) {
-
-        const script =
-            `Add-Type -AssemblyName System.Windows.Forms; ` +
-            `Add-Type -AssemblyName System.Drawing; ` +
-            `$b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; ` +
-            `$bmp = New-Object System.Drawing.Bitmap($b.Width,$b.Height); ` +
-            `$g = [System.Drawing.Graphics]::FromImage($bmp); ` +
-            `$g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); ` +
-            `$bmp.Save('${outPath.replace(/'/g, "''")}',[System.Drawing.Imaging.ImageFormat]::Png); ` +
-            `$g.Dispose(); ` +
-            `$bmp.Dispose()`;
-
-        return runPS(script)
-            .then(() => fs.existsSync(outPath));
-    }
-
-    if (fs.existsSync('/usr/bin/screencapture')) {
-        runDetached(
-            '/usr/bin/screencapture',
-            ['-x', outPath]
-        );
-
-        return Promise.resolve(true);
-    }
-
-    if (fs.existsSync('/usr/bin/scrot')) {
-        runDetached(
-            '/usr/bin/scrot',
-            ['-z', outPath]
-        );
-
-        return Promise.resolve(true);
-    }
-
-    if (fs.existsSync('/usr/bin/gnome-screenshot')) {
-        runDetached(
-            '/usr/bin/gnome-screenshot',
-            ['-f', outPath]
-        );
-
-        return Promise.resolve(true);
-    }
-
-    return Promise.resolve(false);
-}
-
-// ============================================================
-// CLOSE BROWSER
-// ============================================================
+// ============================ Close browser ============================
 
 function closeBrowser(name) {
 
     if (IS_WIN) {
 
-        const exeName = `${name}.exe`;
+        const exeName =
+            `${name}.exe`;
 
-        const ps =
-            `Get-Process '${exeName}','${name}' ` +
-            `-ErrorAction SilentlyContinue | ` +
-            `Stop-Process -Force ` +
-            `-ErrorAction SilentlyContinue; ` +
-
-            `for ($i=0; $i -lt 30; $i++) { ` +
-            `  $left = Get-Process '${exeName}','${name}' ` +
-            `  -ErrorAction SilentlyContinue; ` +
-            `  if (-not $left) { break }; ` +
-            `  $left | Stop-Process -Force ` +
-            `  -ErrorAction SilentlyContinue; ` +
-            `  Start-Sleep -Milliseconds 100 ` +
-            `}; ` +
-
-            `Get-Process '${exeName}','${name}' ` +
-            `-ErrorAction SilentlyContinue | ` +
-            `Stop-Process -Force ` +
-            `-ErrorAction SilentlyContinue`;
+        const ps = `
+Get-Process '${exeName}','${name}' -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+`;
 
         return Promise.race([
+
             runPS(ps),
-            new Promise(resolve =>
-                setTimeout(
-                    () => resolve({
-                        code: -1,
-                        out: 'close-timeout'
-                    }),
-                    5000
-                )
+
+            new Promise(
+                resolve =>
+                    setTimeout(
+                        () =>
+                            resolve({
+                                code: -1,
+                                out: 'timeout'
+                            }),
+                        5000
+                    )
             )
         ]);
-
     }
 
     if (IS_MAC) {
+
         runDetached(
             'pkill',
             [
@@ -684,7 +772,6 @@ function closeBrowser(name) {
     runDetached(
         'pkill',
         [
-            '-f',
             LINUX_WINDOW_CLASS[name] || name
         ]
     );
@@ -692,9 +779,199 @@ function closeBrowser(name) {
     return Promise.resolve();
 }
 
-// ============================================================
-// WINDOWS DEVTOOLS AUTOMATION
-// ============================================================
+// ============================ Linux automation ============================
+
+function linuxShowScriptFor(
+    browserName
+) {
+
+    const cls =
+        LINUX_WINDOW_CLASS[
+            browserName
+        ] ||
+        browserName ||
+        'chrome';
+
+    const devKey =
+        browserName === 'firefox'
+            ? 'ctrl+shift+k'
+            : 'ctrl+shift+j';
+
+    return `
+BN="${cls}"
+
+WID=""
+
+for i in $(seq 1 20); do
+    WID=$(xdotool search --onlyvisible --class "$BN" 2>/dev/null | tail -1)
+    [ -n "$WID" ] && break
+    sleep 0.5
+done
+
+[ -z "$WID" ] && exit 0
+
+xdotool windowactivate "$WID" 2>/dev/null
+xdotool windowfocus "$WID" 2>/dev/null
+
+wmctrl -ia "$WID" 2>/dev/null
+
+wmctrl -r "$WID" -b add,maximized_vert,maximized_horz 2>/dev/null
+
+sleep 0.5
+
+xdotool key --clearmodifiers F12
+
+sleep 1
+
+if [ "$BN" != "firefox" ]; then
+    xdotool key --clearmodifiers ctrl+shift+d
+    sleep 1.5
+fi
+
+xdotool key --clearmodifiers F11
+
+sleep 1.5
+
+xdotool key --clearmodifiers ctrl+shift+e
+
+sleep 1
+
+xdotool key --clearmodifiers F5
+
+sleep 3
+
+xdotool key --clearmodifiers ${devKey}
+
+sleep 1
+
+xdotool key --clearmodifiers F11
+`;
+}
+
+function runLinuxShowScript(name) {
+
+    const script =
+        linuxShowScriptFor(name);
+
+    const child =
+        spawn(
+            'bash',
+            ['-s'],
+            {
+                detached: true,
+                stdio: [
+                    'pipe',
+                    'ignore',
+                    'ignore'
+                ]
+            }
+        );
+
+    child.stdin.write(script);
+    child.stdin.end();
+
+    child.unref();
+}
+
+// ============================ Mac automation ============================
+
+function macShowScriptFor(
+    browserName
+) {
+
+    const processName =
+        MAC_PROCESS[
+            browserName
+        ] ||
+        browserName ||
+        'Safari';
+
+    return `
+set appName to "${processName}"
+
+tell application appName
+    activate
+end tell
+
+delay 1
+
+tell application "System Events"
+
+    try
+        set frontmost of process "${processName}" to true
+    end try
+
+    delay 0.5
+
+    try
+        keystroke "f" using {control down, command down}
+    end try
+
+    delay 1
+
+    try
+        keystroke "j" using {command down, option down, shift down}
+    end try
+
+    delay 1.5
+
+    try
+        keystroke "d" using {command down, shift down}
+    end try
+
+    delay 1.5
+
+    try
+        keystroke "e" using {command down, shift down}
+    end try
+
+    delay 1
+
+    try
+        keystroke "r" using {command down}
+    end try
+
+    delay 2
+
+end tell
+`;
+}
+
+function runMacShowScript(name) {
+
+    const script =
+        macShowScriptFor(name);
+
+    const lines =
+        script
+            .trim()
+            .split(/\n/);
+
+    const args = [];
+
+    for (
+        const line
+        of lines
+    ) {
+
+        const t =
+            line.trim();
+
+        if (t) {
+            args.push(
+                '-e',
+                t
+            );
+        }
+    }
+
+    runDetached(
+        'osascript',
+        args
+    );
+}
+
+// ============================ Windows automation ============================
 
 function browserShowScriptFor(
     browserName,
@@ -702,12 +979,18 @@ function browserShowScriptFor(
     shotPath
 ) {
 
-    const bn = browserName || '';
-    const tail = rowTail || '';
-    const shot = shotPath || '';
+    const bn =
+        browserName || '';
+
+    const tail =
+        rowTail ||
+        'instagram/?__a=1';
+
+    const shot =
+        shotPath || '';
 
     return `
-$browserName = '${bn.replace(/'/g, "''")}'
+$browserName = '${bn}'
 $rowTail = '${tail.replace(/'/g, "''")}'
 $shotPath = '${shot.replace(/'/g, "''")}'
 
@@ -723,40 +1006,19 @@ if ($browserName) {
     $names = @($browserName)
 }
 
-# ============================================================
-# LOGGING
-# ============================================================
-
-$logFile = "$env:TEMP\\\\cookies_time.log"
-
-function Log-Step {
-    param([string]$label)
-
-    try {
-        Add-Content `
-            -LiteralPath $logFile `
-            -Value (
-                (Get-Date -Format 'HH:mm:ss.fff') +
-                ' ' +
-                $label
-            )
-    } catch {}
-}
-
-# ============================================================
-# WINDOWS API
-# ============================================================
-
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-Add-Type -AssemblyName System.Drawing
+
+# ============================ Win32 ============================
 
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Collections.Generic;
 
-public static class WinApiMain {
+public static class BrowserWin32 {
 
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(
@@ -792,45 +1054,6 @@ public static class WinApiMain {
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(
         IntPtr hWnd,
-        out uint lpdwProcessId
-    );
-
-    [DllImport("user32.dll")]
-    public static extern bool IsWindowVisible(
-        IntPtr hWnd
-    );
-}
-
-public struct RECT {
-    public int Left;
-    public int Top;
-    public int Right;
-    public int Bottom;
-}
-'@
-
-Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Collections.Generic;
-
-public static class WinApiEnum {
-
-    public delegate bool EnumWindowsProc(
-        IntPtr hWnd,
-        IntPtr lParam
-    );
-
-    [DllImport("user32.dll")]
-    public static extern bool EnumWindows(
-        EnumWindowsProc callback,
-        IntPtr lParam
-    );
-
-    [DllImport("user32.dll")]
-    public static extern uint GetWindowThreadProcessId(
-        IntPtr hWnd,
         out uint processId
     );
 
@@ -844,93 +1067,13 @@ public static class WinApiEnum {
         IntPtr hWnd
     );
 
-    [DllImport(
-        "user32.dll",
-        CharSet = CharSet.Unicode
-    )]
+    [DllImport("user32.dll",
+        CharSet = CharSet.Unicode)]
     public static extern int GetWindowText(
         IntPtr hWnd,
         StringBuilder text,
         int max
     );
-
-    [DllImport("user32.dll")]
-    public static extern bool PostMessage(
-        IntPtr hWnd,
-        uint msg,
-        IntPtr wParam,
-        IntPtr lParam
-    );
-
-    private static List<IntPtr> _windows;
-    private static uint _pid;
-
-    private static bool Callback(
-        IntPtr hWnd,
-        IntPtr lParam
-    ) {
-
-        uint pid;
-
-        GetWindowThreadProcessId(
-            hWnd,
-            out pid
-        );
-
-        if (
-            pid == _pid &&
-            IsWindowVisible(hWnd)
-        ) {
-            _windows.Add(hWnd);
-        }
-
-        return true;
-    }
-
-    public static List<IntPtr> GetProcessWindows(
-        uint pid
-    ) {
-
-        _windows = new List<IntPtr>();
-        _pid = pid;
-
-        EnumWindows(
-            new EnumWindowsProc(Callback),
-            IntPtr.Zero
-        );
-
-        return _windows;
-    }
-
-    public static string GetTitle(
-        IntPtr hWnd
-    ) {
-
-        int len = GetWindowTextLength(hWnd);
-
-        if (len <= 0) {
-            return "";
-        }
-
-        StringBuilder sb =
-            new StringBuilder(len + 1);
-
-        GetWindowText(
-            hWnd,
-            sb,
-            sb.Capacity
-        );
-
-        return sb.ToString();
-    }
-}
-'@
-
-Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-
-public static class MouseClicker {
 
     [DllImport("user32.dll")]
     public static extern bool SetCursorPos(
@@ -970,119 +1113,192 @@ public static class MouseClicker {
             UIntPtr.Zero
         );
     }
-}
-'@
 
-# ============================================================
-# WINDOW LOCKING
-# ============================================================
-
-Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-
-public static class WinLock {
-
-    [DllImport("user32.dll")]
-    public static extern int GetWindowLong(
-        IntPtr hWnd,
-        int nIndex
-    );
-
-    [DllImport("user32.dll")]
-    public static extern int SetWindowLong(
-        IntPtr hWnd,
-        int nIndex,
-        int value
-    );
-
-    public const int GWL_STYLE = -16;
-    public const int WS_SYSMENU = 0x00080000;
-
-    public static void Lock(
-        IntPtr hWnd
+    public static void Move(
+        int x,
+        int y
     ) {
 
-        if (hWnd == IntPtr.Zero) {
-            return;
+        SetCursorPos(
+            x,
+            y
+        );
+    }
+
+    public static void Wheel(
+        int amount
+    ) {
+
+        mouse_event(
+            0x0800,
+            0,
+            0,
+            unchecked((uint)amount),
+            UIntPtr.Zero
+        );
+    }
+
+    public static void Screenshot(
+        string file
+    ) {
+
+        var bounds =
+            System.Windows.Forms.Screen.PrimaryScreen.Bounds;
+
+        using (
+            var bmp =
+                new System.Drawing.Bitmap(
+                    bounds.Width,
+                    bounds.Height
+                )
+        {
+
+            using (
+                var g =
+                    System.Drawing.Graphics.FromImage(bmp)
+            {
+
+                g.CopyFromScreen(
+                    bounds.Location,
+                    System.Drawing.Point.Empty,
+                    bounds.Size
+                );
+            }
+
+            bmp.Save(
+                file,
+                System.Drawing.Imaging.ImageFormat.Png
+            );
+        }
+    }
+}
+
+public struct RECT {
+    public int Left;
+    public int Top;
+    public int Right;
+    public int Bottom;
+}
+
+public static class BrowserWindows {
+
+    public delegate bool EnumWindowsProc(
+        IntPtr hWnd,
+        IntPtr lParam
+    );
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT2 {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(
+        EnumWindowsProc callback,
+        IntPtr param
+    );
+
+    private static List<IntPtr> windows =
+        new List<IntPtr>();
+
+    private static uint pid;
+
+    private static bool Callback(
+        IntPtr hWnd,
+        IntPtr lParam
+    ) {
+
+        uint p;
+
+        BrowserWin32.GetWindowThreadProcessId(
+            hWnd,
+            out p
+        );
+
+        if (
+            p == pid &&
+            BrowserWin32.IsWindowVisible(hWnd) &&
+            BrowserWin32.GetWindowTextLength(hWnd) > 0
+        ) {
+
+            windows.Add(hWnd);
         }
 
-        int style =
-            GetWindowLong(
-                hWnd,
-                GWL_STYLE
+        return true;
+    }
+
+    public static List<IntPtr> GetWindows(
+        uint processId
+    ) {
+
+        windows =
+            new List<IntPtr>();
+
+        pid =
+            processId;
+
+        EnumWindows(
+            new EnumWindowsProc(Callback),
+            IntPtr.Zero
+        );
+
+        return windows;
+    }
+
+    public static string Title(
+        IntPtr hwnd
+    ) {
+
+        int len =
+            BrowserWin32.GetWindowTextLength(hwnd);
+
+        if (len <= 0)
+            return "";
+
+        StringBuilder sb =
+            new StringBuilder(
+                len + 1
             );
 
-        SetWindowLong(
-            hWnd,
-            GWL_STYLE,
-            style & ~WS_SYSMENU
+        BrowserWin32.GetWindowText(
+            hwnd,
+            sb,
+            sb.Capacity
         );
+
+        return sb.ToString();
     }
 }
 '@
 
-# ============================================================
-# HELPERS
-# ============================================================
+# ============================ Helpers ============================
 
-function Get-WindowElementByHwnd {
-    param(
-        [IntPtr]$hwnd
-    )
+$wsh =
+    New-Object -ComObject WScript.Shell
 
-    if ($hwnd -eq [IntPtr]::Zero) {
-        return $null
-    }
+function Maximize-Window(
+    [IntPtr]$hwnd
+) {
 
-    $root =
-        [System.Windows.Automation.AutomationElement]::RootElement
-
-    $target =
-        $hwnd.ToInt64()
-
-    $all =
-        $root.FindAll(
-            [System.Windows.Automation.TreeScope]::Children,
-            [System.Windows.Automation.Condition]::TrueCondition
-        )
-
-    foreach ($e in $all) {
-
-        try {
-
-            if (
-                $e.Current.NativeWindowHandle -eq
-                $target
-            ) {
-                return $e
-            }
-
-        } catch {}
-    }
-
-    return $null
-}
-
-function Maximize-Window {
-    param(
-        [IntPtr]$hWnd
-    )
-
-    if ($hWnd -eq [IntPtr]::Zero) {
+    if (
+        $hwnd -eq [IntPtr]::Zero
+    ) {
         return
     }
 
-    [WinApiMain]::ShowWindow(
-        $hWnd,
+    [BrowserWin32]::ShowWindow(
+        $hwnd,
         3
     ) | Out-Null
 
     $screen =
         [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 
-    [WinApiMain]::SetWindowPos(
-        $hWnd,
+    [BrowserWin32]::SetWindowPos(
+        $hwnd,
         [IntPtr]::Zero,
         $screen.Left,
         $screen.Top,
@@ -1092,28 +1308,110 @@ function Maximize-Window {
     ) | Out-Null
 }
 
-function Invoke-MouseClick {
-    param(
-        [System.Windows.Automation.AutomationElement]$Element
-    )
+function Get-WindowElement(
+    [IntPtr]$hwnd
+) {
 
-    if (-not $Element) {
+    $root =
+        [System.Windows.Automation.AutomationElement]::RootElement
+
+    $condition =
+        New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
+            $proc.Id
+        )
+
+    $windows =
+        $root.FindAll(
+            [System.Windows.Automation.TreeScope]::Children,
+            $condition
+        )
+
+    foreach (
+        $w in $windows
+    ) {
+
+        if (
+            $w.Current.NativeWindowHandle -eq
+            $hwnd.ToInt64()
+        ) {
+
+            return $w
+        }
+    }
+
+    return $null
+}
+
+function Find-DevToolsWindow {
+
+    foreach (
+        $w
+        in @(
+            [BrowserWindows]::GetWindows(
+                [uint32]$proc.Id
+            )
+        )
+    ) {
+
+        if (
+            $w -ne $mainHwnd
+        ) {
+
+            $title =
+                [BrowserWindows]::Title($w)
+
+            if (
+                $title -match 'DevTools'
+            ) {
+
+                return $w
+            }
+        }
+    }
+
+    foreach (
+        $w
+        in @(
+            [BrowserWindows]::GetWindows(
+                [uint32]$proc.Id
+            )
+        )
+    ) {
+
+        if (
+            $w -ne $mainHwnd
+        ) {
+
+            return $w
+        }
+    }
+
+    return [IntPtr]::Zero
+}
+
+function MouseClick(
+    [System.Windows.Automation.AutomationElement]$element
+) {
+
+    if (-not $element) {
         return $false
     }
 
     try {
 
         $r =
-            $Element.Current.BoundingRectangle
+            $element.Current.BoundingRectangle
 
         if (
             $r.Width -le 0 -or
             $r.Height -le 0
         ) {
+
             return $false
         }
 
-        [MouseClicker]::Click(
+        [BrowserWin32]::Click(
             [int]($r.X + $r.Width / 2),
             [int]($r.Y + $r.Height / 2)
         )
@@ -1126,18 +1424,17 @@ function Invoke-MouseClick {
     }
 }
 
-function Invoke-Element {
-    param(
-        [System.Windows.Automation.AutomationElement]$Element
-    )
+function Invoke-Element(
+    [System.Windows.Automation.AutomationElement]$element
+) {
 
-    if (-not $Element) {
+    if (-not $element) {
         return $false
     }
 
     try {
 
-        $Element.GetCurrentPattern(
+        $element.GetCurrentPattern(
             [System.Windows.Automation.InvokePattern]::Pattern
         ).Invoke()
 
@@ -1147,7 +1444,7 @@ function Invoke-Element {
 
         try {
 
-            $Element.GetCurrentPattern(
+            $element.GetCurrentPattern(
                 [System.Windows.Automation.SelectionItemPattern]::Pattern
             ).Select()
 
@@ -1155,593 +1452,447 @@ function Invoke-Element {
 
         } catch {
 
-            return Invoke-MouseClick $Element
+            return MouseClick $element
         }
     }
 }
 
-# ============================================================
-# FIND DEVTOOLS WINDOW
-# ============================================================
+# ============================ Find browser ============================
 
-function Get-DevToolsWindowHandle {
+$proc = $null
 
-    param(
-        [int]$procId,
-        [IntPtr]$mainHwnd
-    )
+for (
+    $i = 0;
+    $i -lt 30 -and -not $proc;
+    $i++
+) {
 
-    $windows =
-        [WinApiEnum]::GetProcessWindows(
-            [uint32]$procId
-        )
+    foreach (
+        $name
+        in $names
+    ) {
 
-    foreach ($w in $windows) {
+        $p =
+            Get-Process $name `
+                -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.MainWindowHandle -ne 0
+            } |
+            Select-Object -First 1
 
-        if ($w -eq $mainHwnd) {
-            continue
+        if ($p) {
+
+            $proc =
+                $p
+
+            break
         }
-
-        try {
-
-            $title =
-                [WinApiEnum]::GetTitle($w)
-
-            if (
-                $title -match 'DevTools' -or
-                $title -match 'Developer Tools'
-            ) {
-                return $w
-            }
-
-        } catch {}
     }
 
-    foreach ($w in $windows) {
-
-        if ($w -eq $mainHwnd) {
-            continue
-        }
-
-        return $w
-    }
-
-    return [IntPtr]::Zero
+    Start-Sleep -Milliseconds 400
 }
 
-# ============================================================
-# DISMISS ACCIDENTAL PDF / PRINT DIALOG
-#
-# This is only a safety net.
-# The new script does NOT use Ctrl+Shift+P.
-# ============================================================
-
-function Dismiss-PrintDialog {
-
-    try {
-
-        $windows =
-            [WinApiEnum]::GetProcessWindows(
-                [uint32]$proc.Id
-            )
-
-        foreach ($w in $windows) {
-
-            try {
-
-                $title =
-                    [WinApiEnum]::GetTitle($w)
-
-                if (
-                    $title -match '(?i)network\\.pdf' -or
-                    $title -match '(?i)Save Print Output As' -or
-                    $title -match '(?i)Print'
-                ) {
-
-                    Log-Step "possible-print-dialog=$title"
-
-                    [WinApiEnum]::PostMessage(
-                        $w,
-                        0x0010,
-                        [IntPtr]::Zero,
-                        [IntPtr]::Zero
-                    ) | Out-Null
-                }
-
-            } catch {}
-        }
-
-    } catch {}
+if (-not $proc) {
+    exit
 }
 
-# ============================================================
-# TEST DEVTOOLS
-# ============================================================
+# Save browser window before DevTools changes it.
+$mainHwnd =
+    $proc.MainWindowHandle
 
-function Test-DevToolsOpen {
+$wsh.AppActivate(
+    $proc.Id
+) | Out-Null
 
-    param(
-        [int]$ProcId
-    )
+[BrowserWin32]::SetForegroundWindow(
+    $mainHwnd
+) | Out-Null
 
-    try {
+Start-Sleep -Milliseconds 150
 
-        $root =
-            [System.Windows.Automation.AutomationElement]::RootElement
+Maximize-Window $mainHwnd
 
-        $cond =
-            New-Object System.Windows.Automation.PropertyCondition(
-                [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
-                $ProcId
-            )
+# ============================ Open DevTools ============================
 
-        $els =
-            $root.FindAll(
-                [System.Windows.Automation.TreeScope]::Children,
-                $cond
-            )
+$wsh.SendKeys(
+    '{F12}'
+)
 
-        foreach ($el in $els) {
+Start-Sleep -Milliseconds 1000
 
-            $all =
-                $el.FindAll(
-                    [System.Windows.Automation.TreeScope]::Descendants,
-                    [System.Windows.Automation.Condition]::TrueCondition
-                )
+# ============================ Undock DevTools ============================
 
-            foreach ($e in $all) {
+$wsh.SendKeys(
+    '^+d'
+)
 
-                try {
+Start-Sleep -Milliseconds 1000
 
-                    $n = $e.Current.Name
+# ============================ Locate DevTools ============================
 
-                    if (
-                        $n -eq 'Network' -or
-                        $n -eq 'Elements' -or
-                        $n -eq 'Console' -or
-                        $n -eq 'Sources' -or
-                        $n -eq 'Application'
-                    ) {
-                        return $true
-                    }
+$devHwnd =
+    Find-DevToolsWindow
 
-                } catch {}
-            }
-        }
+if (
+    $devHwnd -ne [IntPtr]::Zero
+) {
 
-    } catch {}
+    $wsh.AppActivate(
+        $proc.Id
+    ) | Out-Null
 
-    return $false
+    [BrowserWin32]::SetForegroundWindow(
+        $devHwnd
+    ) | Out-Null
+
+    Start-Sleep -Milliseconds 200
+
+    Maximize-Window $devHwnd
 }
 
-# ============================================================
-# OPEN DEVTOOLS
-# ============================================================
+$devEl =
+    Get-WindowElement $devHwnd
 
-function Invoke-OpenDevToolsButton {
+if (-not $devEl) {
 
-    $root =
-        [System.Windows.Automation.AutomationElement]::RootElement
-
-    $all =
-        $root.FindAll(
-            [System.Windows.Automation.TreeScope]::Descendants,
-            [System.Windows.Automation.Condition]::TrueCondition
-        )
-
-    foreach ($e in $all) {
-
-        try {
-
-            if (
-                $e.Current.ControlType -eq
-                [System.Windows.Automation.ControlType]::Button
-            ) {
-
-                if (
-                    $e.Current.Name -match
-                    '(?i)Open DevTools'
-                ) {
-
-                    return Invoke-Element $e
-                }
-            }
-
-        } catch {}
-    }
-
-    return $false
+    $devEl =
+        Get-WindowElement $mainHwnd
 }
 
-# ============================================================
-# UNDOCK DEVTOOLS
-#
-# IMPORTANT:
-# There is NO Ctrl+Shift+P fallback here.
-# ============================================================
+# ============================ Network panel ============================
 
-function Try-UndockDevTools {
+function Open-Network {
 
-    param(
-        [System.Windows.Automation.AutomationElement]$WindowElement
-    )
-
-    if (-not $WindowElement) {
+    if (-not $devEl) {
         return $false
     }
 
-    try {
+    $condition =
+        New-Object System.Windows.Automation.AndCondition(
 
-        $all =
-            $WindowElement.FindAll(
-                [System.Windows.Automation.TreeScope]::Descendants,
-                [System.Windows.Automation.Condition]::TrueCondition
-            )
+            (
+                New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty,
+                    'Network'
+                )
+            ),
 
-        # Find the DevTools three-dot menu.
-        foreach ($e in $all) {
+            (
+                New-Object System.Windows.Automation.OrCondition(
 
-            try {
+                    (
+                        New-Object System.Windows.Automation.PropertyCondition(
+                            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                            [System.Windows.Automation.ControlType]::TabItem
+                        )
+                    ),
 
-                if (
-                    $e.Current.ControlType -eq
-                    [System.Windows.Automation.ControlType]::Button
-                ) {
+                    (
+                        New-Object System.Windows.Automation.OrCondition(
 
-                    $name = $e.Current.Name
+                            (
+                                New-Object System.Windows.Automation.PropertyCondition(
+                                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                                    [System.Windows.Automation.ControlType]::Button
+                                )
+                            ),
 
-                    if (
-                        $name -match
-                        '(?i)Customize and control DevTools'
-                    ) {
-
-                        Log-Step 'devtools-menu'
-
-                        if (
-                            Invoke-Element $e
-                        ) {
-
-                            Start-Sleep -Milliseconds 500
-
-                            $root =
-                                [System.Windows.Automation.AutomationElement]::RootElement
-
-                            $menuNames = @(
-                                'Undock into separate window',
-                                'Separate window',
-                                'Undock'
+                            (
+                                New-Object System.Windows.Automation.PropertyCondition(
+                                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                                    [System.Windows.Automation.ControlType]::ListItem
+                                )
                             )
-
-                            foreach ($menuName in $menuNames) {
-
-                                $cond =
-                                    New-Object System.Windows.Automation.PropertyCondition(
-                                        [System.Windows.Automation.AutomationElement]::NameProperty,
-                                        $menuName,
-                                        [System.Windows.Automation.PropertyConditionFlags]::IgnoreCase
-                                    )
-
-                                $menuItem =
-                                    $root.FindFirst(
-                                        [System.Windows.Automation.TreeScope]::Descendants,
-                                        $cond
-                                    )
-
-                                if ($menuItem) {
-
-                                    Log-Step "undock-menu=$menuName"
-
-                                    if (
-                                        Invoke-Element $menuItem
-                                    ) {
-                                        Start-Sleep -Milliseconds 800
-                                        return $true
-                                    }
-                                }
-                            }
-                        }
-
-                        break
-                    }
-                }
-
-            } catch {}
-        }
-
-    } catch {}
-
-    return $false
-}
-
-# ============================================================
-# FIND PANEL
-# ============================================================
-
-function Invoke-Panel {
-
-    param(
-        [string]$PanelName,
-        [System.Windows.Automation.AutomationElement]$WindowEl
-    )
-
-    if (-not $WindowEl) {
-        return $false
-    }
-
-    $types = @(
-        [System.Windows.Automation.ControlType]::TabItem,
-        [System.Windows.Automation.ControlType]::Button,
-        [System.Windows.Automation.ControlType]::ListItem
-    )
-
-    foreach ($type in $types) {
-
-        try {
-
-            $cond =
-                New-Object System.Windows.Automation.AndCondition(
-
-                    (
-                        New-Object System.Windows.Automation.PropertyCondition(
-                            [System.Windows.Automation.AutomationElement]::NameProperty,
-                            $PanelName,
-                            [System.Windows.Automation.PropertyConditionFlags]::IgnoreCase
-                        )
-                    ),
-
-                    (
-                        New-Object System.Windows.Automation.PropertyCondition(
-                            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                            $type
                         )
                     )
                 )
-
-            $el =
-                $WindowEl.FindFirst(
-                    [System.Windows.Automation.TreeScope]::Descendants,
-                    $cond
-                )
-
-            if ($el) {
-
-                if (Invoke-Element $el) {
-                    return $true
-                }
-            }
-
-        } catch {}
-    }
-
-    return $false
-}
-
-# ============================================================
-# RELOAD
-# ============================================================
-
-function Invoke-ReloadPage {
-
-    Log-Step 'reload'
-
-    try {
-
-        $wsh.AppActivate(
-            $proc.Id
-        ) | Out-Null
-
-        Start-Sleep -Milliseconds 100
-
-        [WinApiMain]::SetForegroundWindow(
-            $target
-        ) | Out-Null
-
-        Start-Sleep -Milliseconds 100
-
-        # F5 is safe here.
-        [System.Windows.Forms.SendKeys]::SendWait(
-            '{F5}'
+            )
         )
 
-    } catch {}
-}
-
-# ============================================================
-# FIND REQUEST ROW
-# ============================================================
-
-function Select-NetworkRow {
-
-    param(
-        [string]$RowName,
-        [string]$RowName2,
-        [System.Windows.Automation.AutomationElement]$WindowEl
-    )
-
-    if (-not $WindowEl) {
-        return $false
-    }
-
-    foreach ($name in @(
-        $RowName,
-        $RowName2
-    )) {
-
-        if (-not $name) {
-            continue
-        }
-
-        try {
-
-            $cond =
-                New-Object System.Windows.Automation.AndCondition(
-
-                    (
-                        New-Object System.Windows.Automation.PropertyCondition(
-                            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                            [System.Windows.Automation.ControlType]::DataItem
-                        )
-                    ),
-
-                    (
-                        New-Object System.Windows.Automation.PropertyCondition(
-                            [System.Windows.Automation.AutomationElement]::NameProperty,
-                            $name,
-                            [System.Windows.Automation.PropertyConditionFlags]::IgnoreCase
-                        )
-                    )
-                )
-
-            $row =
-                $WindowEl.FindFirst(
-                    [System.Windows.Automation.TreeScope]::Descendants,
-                    $cond
-                )
-
-            if ($row) {
-
-                Log-Step "request-found=$name"
-
-                if (Invoke-Element $row) {
-                    return $true
-                }
-            }
-
-        } catch {}
-    }
-
-    return $false
-}
-
-# ============================================================
-# REFRESH UI AUTOMATION TREE
-# ============================================================
-
-function Refresh-DevToolsElement {
-
-    if ($devHwnd -ne [IntPtr]::Zero) {
-
-        try {
-
-            $fresh =
-                Get-WindowElementByHwnd $devHwnd
-
-            if ($fresh) {
-                return $fresh
-            }
-
-        } catch {}
-    }
-
-    return $devEl
-}
-
-# ============================================================
-# HEADERS TAB
-# ============================================================
-
-function Select-HeadersTab {
-
-    param(
-        [System.Windows.Automation.AutomationElement]$WindowEl
-    )
-
-    if (-not $WindowEl) {
-        return $false
-    }
-
-    $all =
-        $WindowEl.FindAll(
+    $network =
+        $devEl.FindFirst(
             [System.Windows.Automation.TreeScope]::Descendants,
-            [System.Windows.Automation.Condition]::TrueCondition
+            $condition
         )
 
-    foreach ($e in $all) {
+    if ($network) {
 
-        try {
-
-            if (
-                $e.Current.Name -ieq 'Headers'
-            ) {
-
-                Log-Step 'headers-element-found'
-
-                if (
-                    Invoke-Element $e
-                ) {
-                    return $true
-                }
-            }
-
-        } catch {}
+        return Invoke-Element $network
     }
 
     return $false
 }
 
-# ============================================================
-# REQUEST HEADERS
-# ============================================================
+if (-not (Open-Network)) {
 
-function Find-RequestHeaders {
+    $wsh.AppActivate(
+        $proc.Id
+    ) | Out-Null
 
-    param(
-        [System.Windows.Automation.AutomationElement]$WindowEl
+    [BrowserWin32]::SetForegroundWindow(
+        $devHwnd
+    ) | Out-Null
+
+    # Network shortcut.
+    $wsh.SendKeys(
+        '^+e'
     )
 
-    if (-not $WindowEl) {
+    Start-Sleep -Milliseconds 800
+}
+
+# ============================ Reload page ============================
+
+$wsh.AppActivate(
+    $proc.Id
+) | Out-Null
+
+[BrowserWin32]::SetForegroundWindow(
+    $mainHwnd
+) | Out-Null
+
+Start-Sleep -Milliseconds 200
+
+$wsh.SendKeys(
+    '{F5}'
+)
+
+Start-Sleep -Milliseconds 2500
+
+# Refresh DevTools automation tree.
+$devEl =
+    Get-WindowElement $devHwnd
+
+# ============================ Select request row ============================
+
+function Find-NetworkRow {
+
+    if (-not $devEl) {
         return $null
     }
 
-    try {
+    $namesToTry =
+        @(
+            $rowTail,
+            "/$rowTail",
+            "https://www.instagram.com/$rowTail",
+            "https://www.facebook.com/$rowTail"
+        )
 
-        $all =
-            $WindowEl.FindAll(
-                [System.Windows.Automation.TreeScope]::Descendants,
-                [System.Windows.Automation.Condition]::TrueCondition
+    foreach (
+        $wanted
+        in $namesToTry
+    ) {
+
+        $condition =
+            New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::NameProperty,
+                $wanted
             )
 
-        foreach ($e in $all) {
+        $elements =
+            $devEl.FindAll(
+                [System.Windows.Automation.TreeScope]::Descendants,
+                $condition
+            )
+
+        foreach (
+            $element
+            in $elements
+        ) {
 
             try {
 
-                $name =
-                    [string]$e.Current.Name
-
                 if (
-                    $name -match
-                    '^(?i)Request headers?(?:\\s*\\(.*\\))?$'
+                    $element.Current.ControlType -eq
+                    [System.Windows.Automation.ControlType]::DataItem
                 ) {
-                    return $e
+
+                    return $element
                 }
 
             } catch {}
         }
+    }
 
-    } catch {}
+    # Fallback: find DataItem containing the row URL.
+    $items =
+        $devEl.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            (
+                New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::DataItem
+                )
+            )
+        )
+
+    foreach (
+        $item
+        in $items
+    ) {
+
+        try {
+
+            $n =
+                [string]$item.Current.Name
+
+            if (
+                $n -like "*$rowTail*"
+            ) {
+
+                return $item
+            }
+
+        } catch {}
+    }
+
+    return $null
+}
+
+$row =
+    Find-NetworkRow
+
+if ($row) {
+
+    Invoke-Element $row |
+        Out-Null
+
+    Start-Sleep -Milliseconds 700
+}
+
+# Refresh because selecting a request changes the DevTools DOM.
+$devEl =
+    Get-WindowElement $devHwnd
+
+# ============================ Headers ============================
+
+function Find-HeadersTab {
+
+    if (-not $devEl) {
+        return $null
+    }
+
+    $condition =
+        New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::NameProperty,
+            'Headers',
+            [System.Windows.Automation.PropertyConditionFlags]::IgnoreCase
+        )
+
+    $elements =
+        $devEl.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            $condition
+        )
+
+    foreach (
+        $element
+        in $elements
+    ) {
+
+        try {
+
+            $type =
+                $element.Current.ControlType
+
+            if (
+                $type -eq
+                [System.Windows.Automation.ControlType]::TabItem -or
+
+                $type -eq
+                [System.Windows.Automation.ControlType]::Button -or
+
+                $type -eq
+                [System.Windows.Automation.ControlType]::ListItem
+            ) {
+
+                return $element
+            }
+
+        } catch {}
+    }
+
+    return $null
+}
+
+$headersTab =
+    Find-HeadersTab
+
+if ($headersTab) {
+
+    Invoke-Element $headersTab |
+        Out-Null
+
+    Start-Sleep -Milliseconds 500
+}
+
+# Refresh after changing to Headers.
+$devEl =
+    Get-WindowElement $devHwnd
+
+# ============================ REQUEST HEADERS ONLY ============================
+
+function Find-RequestHeaders {
+
+    if (-not $devEl) {
+        return $null
+    }
+
+    $all =
+        $devEl.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition
+        )
+
+    foreach (
+        $element
+        in $all
+    ) {
+
+        try {
+
+            $name =
+                [string]$element.Current.Name
+
+            # ONLY Request Headers.
+            #
+            # Deliberately excludes:
+            # - Response Headers
+            # - General
+            # - Payload
+            # - Preview
+            # - Response
+            # - Query String Parameters
+
+            if (
+                $name -match
+                '^Request headers?(?:\\s*\\(.*\\))?$'
+            ) {
+
+                return $element
+            }
+
+        } catch {}
+    }
 
     return $null
 }
 
 function Expand-RequestHeaders {
 
-    param(
-        [System.Windows.Automation.AutomationElement]$WindowEl
-    )
+    $requestHeaders =
+        Find-RequestHeaders
 
-    $req =
-        Find-RequestHeaders $WindowEl
-
-    if (-not $req) {
+    if (-not $requestHeaders) {
         return $false
     }
 
-    Log-Step 'request-headers-found'
-
+    # First try ExpandCollapsePattern.
     try {
 
         $pattern =
-            $req.GetCurrentPattern(
+            $requestHeaders.GetCurrentPattern(
                 [System.Windows.Automation.ExpandCollapsePattern]::Pattern
             )
 
@@ -1753,8 +1904,6 @@ function Expand-RequestHeaders {
             [System.Windows.Automation.ExpandCollapseState]::Collapsed
         ) {
 
-            Log-Step 'request-headers-collapsed'
-
             $pattern.Expand()
 
             Start-Sleep -Milliseconds 500
@@ -1762,17 +1911,23 @@ function Expand-RequestHeaders {
             return $true
         }
 
-        Log-Step 'request-headers-already-expanded'
+        if (
+            $state -eq
+            [System.Windows.Automation.ExpandCollapseState]::Expanded
+        ) {
 
-        return $true
+            return $true
+        }
 
     } catch {}
 
-    # Some Chromium versions expose the header as
-    # a normal clickable element instead.
+    # If Chromium doesn't expose ExpandCollapsePattern,
+    # click ONLY Request Headers.
     try {
 
-        if (Invoke-Element $req) {
+        if (
+            Invoke-Element $requestHeaders
+        ) {
 
             Start-Sleep -Milliseconds 500
 
@@ -1784,84 +1939,123 @@ function Expand-RequestHeaders {
     return $false
 }
 
-# ============================================================
-# SCROLL REQUEST HEADERS INTO VIEW
-# ============================================================
+Expand-RequestHeaders |
+    Out-Null
 
-function Scroll-RequestHeadersIntoView {
+Start-Sleep -Milliseconds 600
 
-    param(
-        [System.Windows.Automation.AutomationElement]$WindowEl
-    )
+# ============================ Scroll Request Headers ============================
 
-    if (-not $WindowEl) {
-        return $false
-    }
+function Scroll-ToRequestHeaders {
 
     for (
         $attempt = 0;
-        $attempt -lt 8;
+        $attempt -lt 15;
         $attempt++
     ) {
 
-        $req =
-            Find-RequestHeaders $WindowEl
+        $devEl =
+            Get-WindowElement $devHwnd
 
-        if (-not $req) {
-            return $false
+        if (-not $devEl) {
+            continue
+        }
+
+        $requestHeaders =
+            Find-RequestHeaders
+
+        if (-not $requestHeaders) {
+            continue
         }
 
         try {
 
             $r =
-                $req.Current.BoundingRectangle
+                $requestHeaders.Current.BoundingRectangle
 
             $screen =
-                [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+                [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 
+            # Already visible.
             if (
-                $r.Top -ge $screen.Top -and
-                $r.Bottom -le $screen.Bottom
-            ) {
+                $r.Top -ge
+                ($screen.Top + 120) -and
 
-                Log-Step 'request-headers-visible'
+                $r.Top -le
+                ($screen.Top + 350)
+            ) {
 
                 return $true
             }
 
-        } catch {}
-
-        try {
-
-            $scroll =
-                $req.GetCurrentPattern(
-                    [System.Windows.Automation.ScrollItemPattern]::Pattern
+            $x =
+                [int](
+                    $r.X +
+                    ($r.Width / 2)
                 )
 
-            $scroll.ScrollIntoView()
-
-            Start-Sleep -Milliseconds 350
-
-            continue
-
-        } catch {}
-
-        try {
-
-            [WinApiMain]::SetForegroundWindow(
-                $target
-            ) | Out-Null
-
-            if ($attempt -lt 5) {
-
-                [System.Windows.Forms.SendKeys]::SendWait(
-                    '{PGDN}'
+            $y =
+                [int](
+                    $r.Y +
+                    15
                 )
 
-            } else {
+            if (
+                $x -lt
+                $screen.Left + 5
+            ) {
+                $x =
+                    $screen.Left + 5
+            }
 
-                [System.Windows.Forms.SendKeys]::SendWait(
-                    '{PGUP}'
+            if (
+                $x -gt
+                $screen.Right - 5
+            ) {
+                $x =
+                    $screen.Right - 5
+            }
+
+            if (
+                $y -lt
+                $screen.Top + 5
+            ) {
+                $y =
+                    $screen.Top + 5
+            }
+
+            if (
+                $y -gt
+                $screen.Bottom - 5
+            ) {
+                $y =
+                    $screen.Bottom - 5
+            }
+
+            # Put the cursor INSIDE Request Headers.
+            [BrowserWin32]::Move(
+                $x,
+                $y
+            )
+
+            if (
+                $r.Top -gt
+                ($screen.Top + 350)
+            ) {
+
+                # Request Headers is below the visible area.
+                [BrowserWin32]::Wheel(
+                    -600
+                )
+
+            } elseif (
+                $r.Top -lt
+                ($screen.Top + 100)
+            ) {
+
+                # Request Headers is above the desired position.
+                [BrowserWin32]::Wheel(
+                    450
                 )
             }
 
@@ -1869,627 +2063,126 @@ function Scroll-RequestHeadersIntoView {
 
         } catch {
 
-            break
+            return $false
         }
     }
 
-    return $true
+    return $false
 }
 
-# ============================================================
-# FIND BROWSER PROCESS
-# ============================================================
+Scroll-ToRequestHeaders |
+    Out-Null
 
-Log-Step 'start'
+Start-Sleep -Milliseconds 500
 
-$proc = $null
+# Refresh once more and make sure Request Headers remains the selected target.
+$devEl =
+    Get-WindowElement $devHwnd
 
-for (
-    $i = 0;
-    $i -lt 30 -and -not $proc;
-    $i++
-) {
-
-    foreach ($n in $names) {
-
-        $p =
-            Get-Process $n `
-            -ErrorAction SilentlyContinue |
-            Where-Object {
-                $_.MainWindowHandle -ne 0
-            } |
-            Select-Object -First 1
-
-        if ($p) {
-
-            $proc = $p
-
-            break
-        }
-    }
-
-    if (-not $proc) {
-        Start-Sleep -Milliseconds 500
-    }
-}
-
-if (-not $proc) {
-
-    Log-Step 'no-proc'
-
-    exit
-}
-
-$mainHwnd =
-    $proc.MainWindowHandle
-
-# ============================================================
-# FOCUS BROWSER
-# ============================================================
-
-$wsh =
-    New-Object -ComObject WScript.Shell
-
-$wsh.AppActivate(
-    $proc.Id
-) | Out-Null
-
-Start-Sleep -Milliseconds 200
-
-[WinApiMain]::SetForegroundWindow(
-    $mainHwnd
-) | Out-Null
-
-Maximize-Window $mainHwnd
-
-Log-Step 'browser-focused'
-
-# ============================================================
-# OPEN DEVTOOLS
-# ============================================================
-
-for (
-    $i = 0;
-    $i -lt 6;
-    $i++
-) {
-
-    if (
-        Test-DevToolsOpen $proc.Id
-    ) {
-        break
-    }
-
-    $wsh.AppActivate(
-        $proc.Id
-    ) | Out-Null
-
-    Start-Sleep -Milliseconds 100
-
-    if (
-        Invoke-OpenDevToolsButton
-    ) {
-
-        Start-Sleep -Milliseconds 700
-
-        continue
-    }
-
-    # F12 is safe.
-    [System.Windows.Forms.SendKeys]::SendWait(
-        '{F12}'
-    )
-
-    Start-Sleep -Milliseconds 700
-}
-
-Log-Step 'devtools-open'
-
-# ============================================================
-# FIND INITIAL DEVTOOLS ELEMENT
-# ============================================================
-
-$root =
-    [System.Windows.Automation.AutomationElement]::RootElement
-
-$procCond =
-    New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
-        $proc.Id
-    )
-
-$windowElements =
-    $root.FindAll(
-        [System.Windows.Automation.TreeScope]::Children,
-        $procCond
-    )
-
-$winEl = $null
-
-foreach ($candidate in $windowElements) {
-
-    try {
-
-        $title =
-            [WinApiEnum]::GetTitle(
-                [IntPtr]$candidate.Current.NativeWindowHandle
-            )
-
-        if (
-            $title -match 'DevTools' -or
-            $title -match 'Developer Tools'
-        ) {
-
-            $winEl = $candidate
-
-            break
-        }
-
-    } catch {}
-}
-
-if (-not $winEl -and $windowElements.Count -gt 0) {
-    $winEl = $windowElements[0]
-}
-
-# ============================================================
-# TRY TO UNDOCK
-#
-# NO Ctrl+Shift+P.
-# ============================================================
-
-$undocked = $false
-
-if ($browserName -ne 'firefox') {
-
-    try {
-
-        $undocked =
-            Try-UndockDevTools $winEl
-
-    } catch {
-
-        $undocked = $false
-    }
-}
-
-if ($undocked) {
-
-    Log-Step 'undocked'
-
-    Start-Sleep -Milliseconds 1000
-
-} else {
-
-    Log-Step 'undock-skipped'
-
-    # This is intentional.
-    # We continue with docked DevTools instead of using
-    # Ctrl+Shift+P and risking the PDF/print dialog.
-}
-
-# ============================================================
-# FIND DEVTOOLS WINDOW AGAIN
-# ============================================================
-
-$fgHwnd =
-    [WinApiMain]::GetForegroundWindow()
-
-$fgPid = 0
-
-[WinApiMain]::GetWindowThreadProcessId(
-    $fgHwnd,
-    [ref]$fgPid
-) | Out-Null
-
-$devHwnd =
-    [IntPtr]::Zero
-
-if (
-    $fgPid -eq $proc.Id -and
-    $fgHwnd -ne $mainHwnd
-) {
-
-    $devHwnd = $fgHwnd
-}
-
-if (
-    $devHwnd -eq [IntPtr]::Zero
-) {
-
-    $devHwnd =
-        Get-DevToolsWindowHandle `
-        $proc.Id `
-        $mainHwnd
-}
-
-$devEl = $null
-
-if (
-    $devHwnd -ne [IntPtr]::Zero
-) {
-
-    [WinApiMain]::SetForegroundWindow(
-        $devHwnd
-    ) | Out-Null
-
-    Start-Sleep -Milliseconds 150
-
-    Maximize-Window $devHwnd
-
-    $devEl =
-        Get-WindowElementByHwnd $devHwnd
-
-    $target =
-        $devHwnd
-
-} else {
-
-    # Docked DevTools.
-    $target =
-        $mainHwnd
-
-    $devEl =
-        Get-WindowElementByHwnd $mainHwnd
-
-    Maximize-Window $mainHwnd
-}
-
-Log-Step 'devtools-ready'
-
-# ============================================================
-# DISMISS ANY ACCIDENTAL PDF DIALOG
-# ============================================================
-
-Dismiss-PrintDialog
-
-# ============================================================
-# OPEN NETWORK
-#
-# PRIMARY METHOD:
-# UI AUTOMATION CLICK
-#
-# FALLBACK:
-# Ctrl+Shift+E
-#
-# NEVER Ctrl+Shift+P
-# ============================================================
-
-$networkShown = $false
-
-for (
-    $attempt = 0;
-    $attempt -lt 4;
-    $attempt++
-) {
-
-    Dismiss-PrintDialog
-
-    $devEl =
-        Refresh-DevToolsElement
-
-    if ($devEl) {
-
-        if (
-            Invoke-Panel `
-                'Network' `
-                $devEl
-        ) {
-
-            $networkShown = $true
-
-            break
-        }
-    }
-
-    Start-Sleep -Milliseconds 300
-}
-
-if (-not $networkShown) {
-
-    Log-Step 'network-ui-click-failed'
-
-    try {
-
-        $wsh.AppActivate(
-            $proc.Id
-        ) | Out-Null
-
-        [WinApiMain]::SetForegroundWindow(
-            $target
-        ) | Out-Null
-
-        Start-Sleep -Milliseconds 150
-
-        # Chromium Network shortcut.
-        # IMPORTANT: this is Ctrl+Shift+E, NOT Ctrl+Shift+P.
-        if (
-            $browserName -ne 'firefox'
-        ) {
-
-            [System.Windows.Forms.SendKeys]::SendWait(
-                '^+e'
-            )
-
-        } else {
-
-            [System.Windows.Forms.SendKeys]::SendWait(
-                '^+e'
-            )
-        }
-
-        Start-Sleep -Milliseconds 700
-
-        $networkShown = $true
-
-    } catch {}
-}
-
-Dismiss-PrintDialog
-
-Log-Step "network=$networkShown"
-
-# ============================================================
-# WAIT FOR NETWORK PANEL
-# ============================================================
-
-Start-Sleep -Milliseconds 800
-
-# ============================================================
-# RELOAD PAGE
-# ============================================================
-
-Invoke-ReloadPage
-
-Start-Sleep -Milliseconds 1500
-
-# ============================================================
-# SELECT REQUEST
-# ============================================================
-
-$rowClicked = $false
-
-$rowName =
-    if ($browserName -eq 'firefox') {
-        '/' + $rowTail
-    } else {
-        $rowTail
-    }
-
-# Try several times because Network requests can appear
-# slightly after the page has finished painting.
-
-for (
-    $attempt = 0;
-    $attempt -lt 10;
-    $attempt++
-) {
-
-    Dismiss-PrintDialog
-
-    $devEl =
-        Refresh-DevToolsElement
-
-    if ($devEl) {
-
-        $rowClicked =
-            Select-NetworkRow `
-                $rowName `
-                $rowTail `
-                $devEl
-    }
-
-    if ($rowClicked) {
-        break
-    }
-
-    Start-Sleep -Milliseconds 500
-}
-
-# If the row still isn't found, reload exactly once.
-
-if (-not $rowClicked) {
-
-    Log-Step 'request-not-found-first-pass'
-
-    Invoke-ReloadPage
-
-    Start-Sleep -Milliseconds 1800
-
-    for (
-        $attempt = 0;
-        $attempt -lt 8;
-        $attempt++
-    ) {
-
-        Dismiss-PrintDialog
-
-        $devEl =
-            Refresh-DevToolsElement
-
-        if ($devEl) {
-
-            $rowClicked =
-                Select-NetworkRow `
-                    $rowName `
-                    $rowTail `
-                    $devEl
-        }
-
-        if ($rowClicked) {
-            break
-        }
-
-        Start-Sleep -Milliseconds 400
-    }
-}
-
-Log-Step "row-clicked=$rowClicked"
-
-# ============================================================
-# OPEN HEADERS
-# ============================================================
-
-if ($rowClicked) {
-
-    Start-Sleep -Milliseconds 600
-
-    Dismiss-PrintDialog
-
-    $devEl =
-        Refresh-DevToolsElement
-
-    $headersClicked = $false
-
-    if ($devEl) {
-
-        $headersClicked =
-            Select-HeadersTab $devEl
-    }
-
-    if (-not $headersClicked) {
-
-        Start-Sleep -Milliseconds 400
-
-        $devEl =
-            Refresh-DevToolsElement
-
-        if ($devEl) {
-
-            $headersClicked =
-                Select-HeadersTab $devEl
-        }
-    }
-
-    Log-Step "headers=$headersClicked"
-
-    Start-Sleep -Milliseconds 500
-
-    # ========================================================
-    # REQUEST HEADERS
-    # ========================================================
-
-    $devEl =
-        Refresh-DevToolsElement
-
-    $requestExpanded = $false
-
-    if ($devEl) {
-
-        $requestExpanded =
-            Expand-RequestHeaders $devEl
-    }
-
-    Log-Step "request-expanded=$requestExpanded"
-
-    Start-Sleep -Milliseconds 500
-
-    # ========================================================
-    # SCROLL REQUEST HEADERS INTO VIEW
-    # ========================================================
-
-    $devEl =
-        Refresh-DevToolsElement
-
-    if ($devEl) {
-
-        Scroll-RequestHeadersIntoView `
-            $devEl |
-            Out-Null
-    }
-
-    Start-Sleep -Milliseconds 400
-}
-
-# ============================================================
-# FINAL WINDOW FOCUS
-# ============================================================
-
-Dismiss-PrintDialog
-
-[WinApiMain]::SetForegroundWindow(
-    $target
-) | Out-Null
-
-Start-Sleep -Milliseconds 150
-
-Maximize-Window $target
-
-Start-Sleep -Milliseconds 600
-
-Log-Step 'ui-ready'
-
-# ============================================================
-# SCREENSHOT
-# ============================================================
+# ============================ Final screenshot ============================
 
 if ($shotPath) {
 
     try {
 
-        $b =
-            [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        [BrowserWin32]::Screenshot(
+            $shotPath
+        )
 
-        $bmp =
-            New-Object System.Drawing.Bitmap(
-                $b.Width,
-                $b.Height
-            )
+    } catch {
 
-        $g =
-            [System.Drawing.Graphics]::FromImage(
-                $bmp
-            )
-
+        # Fallback using PowerShell GDI.
         try {
 
-            $g.CopyFromScreen(
-                $b.Location,
+            Add-Type -AssemblyName System.Drawing
+
+            $bounds =
+                [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+
+            $bitmap =
+                New-Object System.Drawing.Bitmap(
+                    $bounds.Width,
+                    $bounds.Height
+                )
+
+            $graphics =
+                [System.Drawing.Graphics]::FromImage(
+                    $bitmap
+                )
+
+            $graphics.CopyFromScreen(
+                $bounds.Location,
                 [System.Drawing.Point]::Empty,
-                $b.Size
+                $bounds.Size
             )
 
-            $bmp.Save(
+            $bitmap.Save(
                 $shotPath,
                 [System.Drawing.Imaging.ImageFormat]::Png
             )
 
-        } finally {
+            $graphics.Dispose()
+            $bitmap.Dispose()
 
-            $g.Dispose()
-            $bmp.Dispose()
-        }
-
-        Log-Step "screenshot-saved=$shotPath"
-
-    } catch {
-
-        Log-Step "screenshot-error=$($_.Exception.Message)"
+        } catch {}
     }
 }
 
-# ============================================================
-# SIGNAL COMPLETION
-# ============================================================
-
-try {
-
-    Set-Content `
-        -LiteralPath '${doneFile.replace(/'/g, "''")}' `
-        -Value 'done' `
-        -Encoding ASCII
-
-} catch {}
-
-Log-Step 'done'
-
-exit 0
+exit
 `;
 }
 
-// ============================================================
-// OPEN BROWSER + START AUTOMATION
-// ============================================================
+// ============================ Start Windows automation ============================
+
+function runWindowsAutomation(
+    name,
+    site,
+    shotPath
+) {
+
+    const script =
+        browserShowScriptFor(
+            name,
+            site.rowTail,
+            shotPath
+        );
+
+    /*
+     * IMPORTANT:
+     *
+     * Do NOT create a temporary .ps1 file.
+     * Do NOT create a temp completion flag.
+     *
+     * PowerShell receives the script directly through stdin.
+     */
+
+    const child =
+        spawn(
+            'powershell.exe',
+            [
+                '-NoProfile',
+                '-ExecutionPolicy',
+                'Bypass',
+                '-Command',
+                '-'
+            ],
+            {
+                windowsHide: true,
+                stdio: [
+                    'pipe',
+                    'ignore',
+                    'ignore'
+                ]
+            }
+        );
+
+    child.stdin.write(script);
+    child.stdin.end();
+
+    child.unref();
+}
+
+// ============================ Browser launcher ============================
 
 function openBrowserWithConsole(
     forceName,
@@ -2537,10 +2230,10 @@ function openBrowserWithConsole(
     if (!name) {
 
         console.error(
-            'Could not determine browser.'
+            'No supported browser found.'
         );
 
-        process.exit(1);
+        return null;
     }
 
     launchBrowser(
@@ -2549,70 +2242,43 @@ function openBrowserWithConsole(
         site
     );
 
-    setTimeout(() => {
+    /*
+     * Browser needs a moment to start.
+     * This is only a delay — no temp file is created.
+     */
 
-        if (IS_WIN) {
+    setTimeout(
+        () => {
 
-            const script =
-                browserShowScriptFor(
+            if (IS_WIN) {
+
+                runWindowsAutomation(
                     name,
-                    site.rowTail,
+                    site,
                     shotPath
                 );
 
-            const ps1 =
-                path.join(
-                    os.tmpdir(),
-                    `cookies_show_${Date.now()}.ps1`
+            } else if (IS_MAC) {
+
+                runMacShowScript(
+                    name
                 );
 
-            fs.writeFileSync(
-                ps1,
-                '\ufeff' + script,
-                'utf8'
-            );
+            } else {
 
-            const child =
-                spawn(
-                    'powershell.exe',
-                    [
-                        '-NoProfile',
-                        '-ExecutionPolicy',
-                        'Bypass',
-                        '-File',
-                        ps1
-                    ],
-                    {
-                        windowsHide: true
-                    }
+                runLinuxShowScript(
+                    name
                 );
+            }
 
-            child.on(
-                'error',
-                () => {}
-            );
-
-            child.unref();
-
-            setTimeout(
-                () => {
-                    try {
-                        fs.unlinkSync(ps1);
-                    } catch {}
-                },
-                120000
-            );
-
-        }
-
-    }, 800);
+        },
+        800
+    );
 
     return name;
 }
 
-// ============================================================
-// BROWSER COMMAND LINE
-// ============================================================
+// ============================ Browser flag ============================
 
 function parseBrowserFlag() {
 
@@ -2633,10 +2299,14 @@ function parseBrowserFlag() {
     };
 
     for (
-        const arg of process.argv.slice(2)
+        const arg
+        of process.argv.slice(2)
     ) {
 
-        if (known[arg]) {
+        if (
+            known[arg]
+        ) {
+
             return known[arg];
         }
     }
@@ -2644,9 +2314,7 @@ function parseBrowserFlag() {
     return null;
 }
 
-// ============================================================
-// MAIN
-// ============================================================
+// ============================ Main ============================
 
 async function main() {
 
@@ -2661,16 +2329,9 @@ async function main() {
     const results = [];
 
     for (
-        const site of SITE_ORDER
+        const site
+        of SITE_ORDER
     ) {
-
-        if (
-            fs.existsSync(doneFile)
-        ) {
-            try {
-                fs.unlinkSync(doneFile);
-            } catch {}
-        }
 
         const username =
             getSiteUsername(site);
@@ -2690,10 +2351,6 @@ async function main() {
             } catch {}
         }
 
-        console.log(
-            `Starting ${username}...`
-        );
-
         const browserName =
             openBrowserWithConsole(
                 forceName,
@@ -2701,19 +2358,20 @@ async function main() {
                 outPath
             );
 
-        // ====================================================
-        // WAIT FOR SCREENSHOT / DONE FLAG
-        //
-        // Hard maximum: 45 seconds.
-        // This prevents the script from hanging forever.
-        // ====================================================
+        if (!browserName) {
+            continue;
+        }
 
+        /*
+         * No done flag.
+         *
+         * We simply wait until the actual PNG exists.
+         */
         let waited = 0;
 
         while (
             !fs.existsSync(outPath) &&
-            !fs.existsSync(doneFile) &&
-            waited < 45
+            waited < 60
         ) {
 
             await new Promise(
@@ -2730,48 +2388,30 @@ async function main() {
         const ok =
             fs.existsSync(outPath);
 
-        if (
-            fs.existsSync(doneFile)
-        ) {
-
-            try {
-                fs.unlinkSync(doneFile);
-            } catch {}
-        }
-
         results.push({
             username,
             outPath,
             ok
         });
 
-        console.log(
-            `${username}: screenshot=${ok}`
-        );
+        /*
+         * Give Windows a moment before closing the browser.
+         * Screenshot is already on disk at this point.
+         */
 
-        // ====================================================
-        // CLOSE BROWSER
-        // ====================================================
+        if (IS_WIN) {
 
-        await closeBrowser(
-            browserName
-        );
+            await closeBrowser(
+                browserName
+            );
 
-        // Give Windows a tiny amount of time to
-        // release the browser process before starting
-        // the next site.
-        await new Promise(
-            resolve =>
-                setTimeout(
-                    resolve,
-                    500
-                )
-        );
+        } else {
+
+            closeBrowser(
+                browserName
+            );
+        }
     }
-
-    // ========================================================
-    // RESULT
-    // ========================================================
 
     const saved =
         results.filter(
@@ -2792,11 +2432,11 @@ async function main() {
                     saved.length > 1
                         ? 's'
                         : ''
-                } saved:\\n` +
+                } saved:\n` +
                 saved
                     .map(r => r.outPath)
-                    .join('\\n'),
-                'Instagram/Facebook Screenshot'
+                    .join('\n'),
+                'Screenshot'
             );
 
             openCaptures();
@@ -2807,28 +2447,11 @@ async function main() {
         if (!silent) {
 
             await showMessage(
-                'Screenshots could not be captured.',
-                'Instagram/Facebook Screenshot'
+                'Screenshot could not be captured.',
+                'Screenshot'
             );
         }
     }
 }
 
-// ============================================================
-// START
-// ============================================================
-
-main().catch(err => {
-
-    console.error(err);
-
-    try {
-        fs.writeFileSync(
-            path.join(
-                os.tmpdir(),
-                'cookies_error.log'
-            ),
-            String(err.stack || err)
-        );
-    } catch {}
-});
+main();
