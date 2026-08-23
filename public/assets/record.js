@@ -964,107 +964,28 @@ if ($reqEl) {
     $T.Invoke('request-headers-notfound')
 }
 
-# --- Automatically find "Response headers (...)", click it, then press END ---
+# --- Automatically find "Response headers (...)" on screen using OCR,
+# --- click it, then press END ---
 
 $wsh.AppActivate($proc.Id) | Out-Null
 [WinApi2]::SetForegroundWindow($target) | Out-Null
-Start-Sleep -Milliseconds 500
+Start-Sleep -Milliseconds 700
 
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
 
-# Get the DevTools window
-$root = [System.Windows.Automation.AutomationElement]::FromHandle($target)
-
-$found = $null
-
-# Search EVERYTHING under the DevTools window.
-$elements = $root.FindAll(
-    [System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.Condition]::TrueCondition
-)
-
-foreach ($element in $elements) {
-    try {
-        $name = $element.Current.Name
-
-        if ([string]::IsNullOrWhiteSpace($name)) {
-            continue
-        }
-
-        # Match:
-        # Response headers (15,18)
-        # Response headers (20,7)
-        # Response headers (...)
-        #
-        # The numbers are deliberately ignored.
-        if ($name -match 'Response\s*headers\s*\(') {
-            $found = $element
-            Write-Host "Found: [$name]"
-            break
-        }
-    }
-    catch {
-        # Ignore inaccessible UI elements
-    }
-}
-
-if ($found) {
-
-    # Try to bring the element into view first
-    try {
-        $scrollItem = $found.GetCurrentPattern(
-            [System.Windows.Automation.ScrollItemPattern]::Pattern
-        )
-
-        $scrollItem.ScrollIntoView()
-        Start-Sleep -Milliseconds 300
-    }
-    catch {
-        # ScrollItemPattern may not be available
-    }
-
-    $clicked = $false
-
-    # First try UI Automation InvokePattern
-    try {
-        $invoke = $found.GetCurrentPattern(
-            [System.Windows.Automation.InvokePattern]::Pattern
-        )
-
-        $invoke.Invoke()
-        Write-Host "Activated Response headers using InvokePattern."
-        $clicked = $true
-    }
-    catch {
-        # Not an invokable control
-    }
-
-    # If InvokePattern isn't available, click its actual bounding rectangle
-    if (-not $clicked) {
-        try {
-            $rect = $found.Current.BoundingRectangle
-
-            if ($rect.Width -gt 0 -and $rect.Height -gt 0) {
-
-                $clickX = [int]($rect.X + ($rect.Width / 2))
-                $clickY = [int]($rect.Y + ($rect.Height / 2))
-
-                Write-Host "Clicking Response headers at X=$clickX Y=$clickY"
-
-                [System.Windows.Forms.Cursor]::Position =
-                    New-Object System.Drawing.Point($clickX, $clickY)
-
-                Start-Sleep -Milliseconds 150
-
-                # Native mouse click
-                Add-Type @"
+# ------------------------------------------------------------
+# Mouse click helper
+# ------------------------------------------------------------
+if (-not ([System.Management.Automation.PSTypeName]'ScreenMouse').Type) {
+    Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 
-public class AutoMouseClick {
+public static class ScreenMouse {
     [DllImport("user32.dll")]
-    public static extern void mouse_event(
+    private static extern void mouse_event(
         uint dwFlags,
         uint dx,
         uint dy,
@@ -1072,54 +993,179 @@ public class AutoMouseClick {
         UIntPtr dwExtraInfo
     );
 
-    public const uint LEFTDOWN = 0x0002;
-    public const uint LEFTUP   = 0x0004;
+    private const uint LEFTDOWN = 0x0002;
+    private const uint LEFTUP   = 0x0004;
 
-    public static void Click() {
+    public static void Click(int x, int y) {
+        SetCursorPos(x, y);
         mouse_event(LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
         mouse_event(LEFTUP, 0, 0, 0, UIntPtr.Zero);
     }
+
+    [DllImport("user32.dll")]
+    private static extern bool SetCursorPos(int X, int Y);
 }
 "@
+}
 
-                [AutoMouseClick]::Click()
-                $clicked = $true
+# ------------------------------------------------------------
+# Capture complete primary screen
+# ------------------------------------------------------------
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen
+$width  = $screen.Bounds.Width
+$height = $screen.Bounds.Height
+
+$bitmap = New-Object System.Drawing.Bitmap `
+    $width,
+    $height,
+    ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+
+$graphics.CopyFromScreen(
+    $screen.Bounds.X,
+    $screen.Bounds.Y,
+    0,
+    0,
+    $bitmap.Size
+)
+
+$graphics.Dispose()
+
+# ------------------------------------------------------------
+# Convert Bitmap -> SoftwareBitmap for Windows OCR
+# ------------------------------------------------------------
+
+# Save temporary screenshot
+$tmpImage = [System.IO.Path]::Combine(
+    [System.IO.Path]::GetTempPath(),
+    "devtools_ocr.png"
+)
+
+$bitmap.Save(
+    $tmpImage,
+    [System.Drawing.Imaging.ImageFormat]::Png
+)
+
+$bitmap.Dispose()
+
+# Windows OCR
+$ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+
+if ($null -eq $ocrEngine) {
+    Write-Host "Windows OCR engine could not be initialized."
+}
+else {
+
+    # Load image into SoftwareBitmap
+    $file = [Windows.Storage.StorageFile]::GetFileFromPathAsync($tmpImage).GetAwaiter().GetResult()
+
+    $stream = $file.OpenAsync(
+        [Windows.Storage.FileAccessMode]::Read
+    ).GetAwaiter().GetResult()
+
+    $decoder = [Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync(
+        $stream
+    ).GetAwaiter().GetResult()
+
+    $softwareBitmap = $decoder.GetSoftwareBitmapAsync().GetAwaiter().GetResult()
+
+    # Run OCR
+    $ocrResult = $ocrEngine.RecognizeAsync(
+        $softwareBitmap
+    ).GetAwaiter().GetResult()
+
+    $found = $false
+
+    # --------------------------------------------------------
+    # Search OCR lines/words for "Response headers"
+    # --------------------------------------------------------
+    foreach ($line in $ocrResult.Lines) {
+
+        $text = $line.Text
+
+        Write-Host "OCR: $text"
+
+        if ($text -match '(?i)Response\s*headers') {
+
+            Write-Host "FOUND: $text"
+
+            # Get bounding rectangle of the OCR line
+            $rect = $line.Words[0].BoundingRect
+
+            # Calculate complete bounding box across all words
+            $left   = [double]::PositiveInfinity
+            $top    = [double]::PositiveInfinity
+            $right  = [double]::NegativeInfinity
+            $bottom = [double]::NegativeInfinity
+
+            foreach ($word in $line.Words) {
+
+                $r = $word.BoundingRect
+
+                if ($r.X -lt $left) {
+                    $left = $r.X
+                }
+
+                if ($r.Y -lt $top) {
+                    $top = $r.Y
+                }
+
+                if (($r.X + $r.Width) -gt $right) {
+                    $right = $r.X + $r.Width
+                }
+
+                if (($r.Y + $r.Height) -gt $bottom) {
+                    $bottom = $r.Y + $r.Height
+                }
             }
-        }
-        catch {
-            Write-Host "Could not click the detected element."
+
+            # Center of detected text
+            $clickX = [int](($left + $right) / 2)
+            $clickY = [int](($top + $bottom) / 2)
+
+            Write-Host "Clicking OCR location: X=$clickX Y=$clickY"
+
+            # Move + click
+            [ScreenMouse]::Click($clickX, $clickY)
+
+            $found = $true
+            break
         }
     }
 
-    if ($clicked) {
+    $stream.Dispose()
+
+    # Clean up temporary screenshot
+    Remove-Item $tmpImage -Force -ErrorAction SilentlyContinue
+
+    # --------------------------------------------------------
+    # After clicking Response headers, send END
+    # --------------------------------------------------------
+    if ($found) {
+
+        Write-Host "Response headers clicked."
+
         Start-Sleep -Milliseconds 500
 
-        # Response headers now has focus, so END should scroll it
+        # Ensure DevTools is still foreground
+        $wsh.AppActivate($proc.Id) | Out-Null
+        [WinApi2]::SetForegroundWindow($target) | Out-Null
+
+        Start-Sleep -Milliseconds 200
+
         [System.Windows.Forms.SendKeys]::SendWait('{END}')
 
         Start-Sleep -Milliseconds 500
 
-        # Extra fallback
-        for ($s = 0; $s -lt 5; $s++) {
-            [System.Windows.Forms.SendKeys]::SendWait('{PGDN}')
-            Start-Sleep -Milliseconds 100
-        }
-
-        Start-Sleep -Milliseconds 400
-
-        Write-Host "Response headers clicked and END sent."
     }
     else {
-        Write-Host "Response headers was found, but could not be activated."
+
+        Write-Host "Could not find 'Response headers' on screen."
     }
-
-}
-else {
-    Write-Host "Response headers was NOT found in the UI Automation tree."
 }
 
-# --------------------------------------------------------------
-
+# ------------------------------------------------------------
 
 # Capture the full screen right here (same PS process, no cold start later).
 if ($shotPath) {
